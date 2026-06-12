@@ -33,6 +33,12 @@ public class SkinnedMesh extends Mesh
 	private float[] cachedGpuBoneIndices;
 	private float[] cachedGpuBoneWeights;
 	private float[] cachedGpuBoneMatrices;
+	private int cachedGpuPaletteRecordCount = -1;
+	private int cachedGpuPaletteBoneCount = -1;
+	private int[] cachedGpuRecordToPaletteIndices;
+	private int[] cachedGpuPaletteSourceRecords;
+	private boolean cachedGpuPaletteSupported;
+	private final Transform cachedGpuWorkingTransform = new Transform();
 	private VertexBuffer cachedSkinnedVertexBuffer;
 	private VertexArray cachedSkinnedPositions;
 	private VertexArray cachedSkinnedNormals;
@@ -53,6 +59,7 @@ public class SkinnedMesh extends Mesh
 
 	static final class GpuSkinningData
 	{
+		final GpuSkinningTiming timing;
 		final VertexBuffer baseVertices;
 		final int vertexCount;
 		final int boneCount;
@@ -62,9 +69,10 @@ public class SkinnedMesh extends Mesh
 		final float[] boneWeights;
 		final float[] boneMatrices;
 
-		GpuSkinningData(VertexBuffer baseVertices, int vertexCount, int boneCount, int maxVertexInfluenceCount,
+		GpuSkinningData(GpuSkinningTiming timing, VertexBuffer baseVertices, int vertexCount, int boneCount, int maxVertexInfluenceCount,
 				int packedInfluenceCount, float[] boneIndices, float[] boneWeights, float[] boneMatrices)
 		{
+			this.timing = timing;
 			this.baseVertices = baseVertices;
 			this.vertexCount = vertexCount;
 			this.boneCount = boneCount;
@@ -74,6 +82,17 @@ public class SkinnedMesh extends Mesh
 			this.boneWeights = boneWeights;
 			this.boneMatrices = boneMatrices;
 		}
+	}
+
+	static final class GpuSkinningTiming
+	{
+		long totalNs;
+		long ensureInfluenceCacheNs;
+		long ensureGpuPaletteCacheNs;
+		long packGpuInfluencesNs;
+		long ensureGpuBoneMatricesBufferNs;
+		long updateBoneMatricesNs;
+		long copyBoneMatricesNs;
 	}
 
 	public SkinnedMesh(VertexBuffer vertices, IndexBuffer[] submeshes, Appearance[] appearances, Group skeleton)
@@ -399,6 +418,11 @@ public class SkinnedMesh extends Mesh
 		cachedGpuBoneIndices = null;
 		cachedGpuBoneWeights = null;
 		cachedGpuBoneMatrices = null;
+		cachedGpuPaletteRecordCount = -1;
+		cachedGpuPaletteBoneCount = -1;
+		cachedGpuRecordToPaletteIndices = null;
+		cachedGpuPaletteSourceRecords = null;
+		cachedGpuPaletteSupported = false;
 	}
 
 	private void ensureInfluenceCache(int vertexCount)
@@ -482,8 +506,34 @@ public class SkinnedMesh extends Mesh
 		return getGpuSkinningData(MAX_GPU_INFLUENCES);
 	}
 
+	String getGpuSkinningUnavailableReason(int maxInfluences)
+	{
+		if (maxInfluences < 1)
+		{
+			return "invalidMaxInfluences";
+		}
+		VertexBuffer base = getVertexBuffer();
+		if (boneTransforms.isEmpty())
+		{
+			return "noBoneTransforms";
+		}
+		int vertexCount = base.getVertexCount();
+		if (vertexCount == 0 || base.getPositions(null) == null)
+		{
+			return "missingPositions";
+		}
+		ensureInfluenceCache(vertexCount);
+		if (!ensureGpuPaletteCache())
+		{
+			return "inconsistentAtRestTransform";
+		}
+		return null;
+	}
+
 	GpuSkinningData getGpuSkinningData(int maxInfluences)
 	{
+		GpuSkinningTiming timing = new GpuSkinningTiming();
+		long totalStartNs = System.nanoTime();
 		if (maxInfluences < 1)
 		{
 			throw new IllegalArgumentException();
@@ -499,8 +549,17 @@ public class SkinnedMesh extends Mesh
 			return null;
 		}
 
+		long ensureInfluenceCacheStartNs = System.nanoTime();
 		ensureInfluenceCache(vertexCount);
-		int boneCount = boneTransforms.size();
+		timing.ensureInfluenceCacheNs = System.nanoTime() - ensureInfluenceCacheStartNs;
+		long ensureGpuPaletteCacheStartNs = System.nanoTime();
+		if (!ensureGpuPaletteCache())
+		{
+			timing.ensureGpuPaletteCacheNs = System.nanoTime() - ensureGpuPaletteCacheStartNs;
+			return null;
+		}
+		timing.ensureGpuPaletteCacheNs = System.nanoTime() - ensureGpuPaletteCacheStartNs;
+		int boneCount = cachedGpuPaletteBoneCount;
 		if (cachedGpuBoneIndices == null
 				|| cachedGpuBoneWeights == null
 				|| cachedGpuMaxInfluenceCount != maxInfluences
@@ -510,6 +569,7 @@ public class SkinnedMesh extends Mesh
 			cachedGpuMaxInfluenceCount = maxInfluences;
 			cachedGpuBoneIndices = new float[vertexCount * maxInfluences];
 			cachedGpuBoneWeights = new float[vertexCount * maxInfluences];
+			long packGpuInfluencesStartNs = System.nanoTime();
 			for (int v = 0; v < vertexCount; v++)
 			{
 				int[] boneIndices = cachedVertexBoneIndices[v];
@@ -519,25 +579,88 @@ public class SkinnedMesh extends Mesh
 					continue;
 				}
 				int offset = v * maxInfluences;
-				packGpuInfluences(boneIndices, boneWeights, cachedGpuBoneIndices, cachedGpuBoneWeights, offset, maxInfluences);
+				packGpuInfluences(boneIndices, boneWeights, cachedGpuBoneIndices, cachedGpuBoneWeights, offset, maxInfluences,
+						cachedGpuRecordToPaletteIndices);
 			}
+			timing.packGpuInfluencesNs = System.nanoTime() - packGpuInfluencesStartNs;
 		}
 
+		long ensureGpuBoneMatricesBufferStartNs = System.nanoTime();
 		if (cachedGpuBoneMatrices == null || cachedGpuBoneMatrices.length != boneCount * 16)
 		{
 			cachedGpuBoneMatrices = new float[boneCount * 16];
 		}
-		updateBoneMatrices();
-		for (int i = 0; i < boneCount; i++)
-		{
-			System.arraycopy(cachedBoneMatrices[i].getMatrix(), 0, cachedGpuBoneMatrices, i * 16, 16);
-		}
-		return new GpuSkinningData(base, vertexCount, boneCount, Math.min(cachedMaxVertexInfluenceCount, maxInfluences), maxInfluences,
+		timing.ensureGpuBoneMatricesBufferNs = System.nanoTime() - ensureGpuBoneMatricesBufferStartNs;
+		long updateBoneMatricesStartNs = System.nanoTime();
+		updateGpuBoneMatrices(boneCount);
+		timing.updateBoneMatricesNs = System.nanoTime() - updateBoneMatricesStartNs;
+		timing.copyBoneMatricesNs = 0L;
+		timing.totalNs = System.nanoTime() - totalStartNs;
+		return new GpuSkinningData(timing, base, vertexCount, boneCount, Math.min(cachedMaxVertexInfluenceCount, maxInfluences), maxInfluences,
 				cachedGpuBoneIndices, cachedGpuBoneWeights, cachedGpuBoneMatrices);
 	}
 
+	private boolean ensureGpuPaletteCache()
+	{
+		int recordCount = boneTransforms.size();
+		if (cachedGpuRecordToPaletteIndices != null && cachedGpuPaletteSourceRecords != null
+				&& cachedGpuPaletteRecordCount == recordCount)
+		{
+			return cachedGpuPaletteSupported;
+		}
+		cachedGpuPaletteRecordCount = recordCount;
+		cachedGpuPaletteBoneCount = 0;
+		cachedGpuPaletteSupported = true;
+		cachedGpuRecordToPaletteIndices = new int[recordCount];
+		cachedGpuPaletteSourceRecords = new int[recordCount];
+		for (int i = 0; i < recordCount; i++)
+		{
+			BoneTransform current = (BoneTransform) boneTransforms.elementAt(i);
+			int paletteIndex = -1;
+			for (int j = 0; j < i; j++)
+			{
+				BoneTransform previous = (BoneTransform) boneTransforms.elementAt(j);
+				if (previous.bone != current.bone)
+				{
+					continue;
+				}
+				if (!hasSameAtRestTransform(previous.atRestTransform, current.atRestTransform))
+				{
+					cachedGpuPaletteSupported = false;
+					cachedGpuPaletteBoneCount = 0;
+					cachedGpuRecordToPaletteIndices = null;
+					cachedGpuPaletteSourceRecords = null;
+					return false;
+				}
+				paletteIndex = cachedGpuRecordToPaletteIndices[j];
+				break;
+			}
+			if (paletteIndex < 0)
+			{
+				paletteIndex = cachedGpuPaletteBoneCount++;
+				cachedGpuPaletteSourceRecords[paletteIndex] = i;
+			}
+			cachedGpuRecordToPaletteIndices[i] = paletteIndex;
+		}
+		return true;
+	}
+
+	private boolean hasSameAtRestTransform(Transform a, Transform b)
+	{
+		float[] am = a.getMatrix();
+		float[] bm = b.getMatrix();
+		for (int i = 0; i < 16; i++)
+		{
+			if (am[i] != bm[i])
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
 	private static void packGpuInfluences(int[] sourceIndices, float[] sourceWeights, float[] targetIndices,
-			float[] targetWeights, int targetOffset, int maxInfluences)
+			float[] targetWeights, int targetOffset, int maxInfluences, int[] recordToPaletteIndices)
 	{
 		for (int i = 0; i < maxInfluences; i++)
 		{
@@ -563,7 +686,7 @@ public class SkinnedMesh extends Mesh
 			}
 			for (int i = 0; i < influenceCount; i++)
 			{
-				targetIndices[targetOffset + i] = sourceIndices[i];
+				targetIndices[targetOffset + i] = recordToPaletteIndices[sourceIndices[i]];
 				targetWeights[targetOffset + i] = sourceWeights[i] / totalWeight;
 			}
 			return;
@@ -609,7 +732,7 @@ public class SkinnedMesh extends Mesh
 		}
 		for (int i = 0; i < maxInfluences; i++)
 		{
-			targetIndices[targetOffset + i] = selectedIndices[i];
+			targetIndices[targetOffset + i] = recordToPaletteIndices[selectedIndices[i]];
 			targetWeights[targetOffset + i] = selectedWeights[i] / totalSelectedWeight;
 		}
 	}
@@ -629,6 +752,25 @@ public class SkinnedMesh extends Mesh
 			{
 				matrix.setIdentity();
 			}
+		}
+	}
+
+	private void updateGpuBoneMatrices(int boneCount)
+	{
+		Transform matrix = cachedGpuWorkingTransform;
+		for (int i = 0; i < boneCount; i++)
+		{
+			int sourceRecord = cachedGpuPaletteSourceRecords[i];
+			BoneTransform bt = (BoneTransform) boneTransforms.elementAt(sourceRecord);
+			if (bt.bone.getTransformTo(this, matrix))
+			{
+				matrix.postMultiply(bt.atRestTransform);
+			}
+			else
+			{
+				matrix.setIdentity();
+			}
+			System.arraycopy(matrix.getMatrix(), 0, cachedGpuBoneMatrices, i * 16, 16);
 		}
 	}
 
