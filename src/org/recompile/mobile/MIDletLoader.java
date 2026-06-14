@@ -248,8 +248,6 @@ public class MIDletLoader extends URLClassLoader
 	{
 		URL url;
 		//System.out.println("Loading Resource: " + resource);
-		String debugResource = resource;
-		long debugStartMs = System.currentTimeMillis();
 
 		if(resource.startsWith("/"))
 		{
@@ -269,19 +267,6 @@ public class MIDletLoader extends URLClassLoader
 			{
 				count = stream.read(data);
 				if(count!=-1) { buffer.write(data, 0, count); }
-			}
-			long totalCostMs = System.currentTimeMillis() - debugStartMs;
-			if (totalCostMs >= 200)
-			{
-				// #region debug-point D:slow-resource-load
-				Mobile.reportDebugEvent("D", "MIDletLoader.getResourceAsStream", "[DEBUG] slow resource load", "{\"resource\":\""
-						+ Mobile.debugJson(debugResource)
-						+ "\",\"totalMs\":"
-						+ totalCostMs
-						+ ",\"bytes\":"
-						+ buffer.size()
-						+ "}");
-				// #endregion
 			}
 			return new ByteArrayInputStream(buffer.toByteArray());
 		}
@@ -321,8 +306,6 @@ public class MIDletLoader extends URLClassLoader
 	public InputStream getMIDletResourceAsStream(String resource)
 	{
 		//System.out.println("Get Resource: "+resource);
-		String debugResource = resource;
-		long debugStartMs = System.currentTimeMillis();
 
 		URL url = getResource(resource);
 
@@ -338,19 +321,6 @@ public class MIDletLoader extends URLClassLoader
 			{
 				count = stream.read(data);
 				if(count!=-1) { buffer.write(data, 0, count); }
-			}
-			long totalCostMs = System.currentTimeMillis() - debugStartMs;
-			if (totalCostMs >= 200)
-			{
-				// #region debug-point D:slow-midlet-resource-load
-				Mobile.reportDebugEvent("D", "MIDletLoader.getMIDletResourceAsStream", "[DEBUG] slow MIDlet resource load", "{\"resource\":\""
-						+ Mobile.debugJson(debugResource)
-						+ "\",\"totalMs\":"
-						+ totalCostMs
-						+ ",\"bytes\":"
-						+ buffer.size()
-						+ "}");
-				// #endregion
 			}
 			return new ByteArrayInputStream(buffer.toByteArray());
 		}

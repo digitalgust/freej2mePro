@@ -209,18 +209,8 @@ public class MobilePlatform {
 //	}
 
     public void flushGraphics(Image img, int x, int y, int width, int height) {
-        Mobile.DebugWatchScope debugScope = Mobile.beginDebugWatchScope("F", "MobilePlatform.flushGraphics.watch", 1000L);
-        try {
-            Mobile.updateDebugWatchScope(debugScope, "gc.flushGraphics");
-            gc.flushGraphics(img, x, y, width, height);
-
-            Mobile.updateDebugWatchScope(debugScope, "painter.run");
-            painter.run();//画到窗口画布上
-        } finally {
-            Mobile.updateDebugWatchScope(debugScope, "done");
-            Mobile.finishDebugWatchScope(debugScope);
-        }
-
+        gc.flushGraphics(img, x, y, width, height);
+        painter.run();//画到窗口画布上
         //System.gc();
     }
 

@@ -44,7 +44,6 @@ public class PlatformPlayer implements Player
 
 	public PlatformPlayer(InputStream stream, String type)
 	{
-		long debugStartMs = System.currentTimeMillis();
 		listeners = new Vector<PlayerListener>();
 		controls = new Control[3];
 
@@ -76,20 +75,6 @@ public class PlatformPlayer implements Player
 		controls[0] = new volumeControl();
 		controls[1] = new tempoControl();
 		controls[2] = new midiControl();
-
-		long totalCostMs = System.currentTimeMillis() - debugStartMs;
-		if (totalCostMs >= 200)
-		{
-			// #region debug-point A:slow-player-init
-			Mobile.reportDebugEvent("A", "PlatformPlayer.<init>", "[DEBUG] slow player init", "{\"contentType\":\""
-					+ Mobile.debugJson(contentType)
-					+ "\",\"player\":\""
-					+ Mobile.debugJson(player == null ? "null" : player.getClass().getName())
-					+ "\",\"totalMs\":"
-					+ totalCostMs
-					+ "}");
-			// #endregion
-		}
 
 		//System.out.println("media type: "+type);
 	}
@@ -127,25 +112,11 @@ public class PlatformPlayer implements Player
 	public void start()
 	{
 		//System.out.println("Play "+contentType);
-		long debugStartMs = System.currentTimeMillis();
 		try
 		{
 			player.start();
 		}
 		catch (Exception e) {  }
-		long totalCostMs = System.currentTimeMillis() - debugStartMs;
-		if (totalCostMs >= 100)
-		{
-			// #region debug-point A:slow-player-start
-			Mobile.reportDebugEvent("A", "PlatformPlayer.start", "[DEBUG] slow player start", "{\"contentType\":\""
-					+ Mobile.debugJson(contentType)
-					+ "\",\"player\":\""
-					+ Mobile.debugJson(player == null ? "null" : player.getClass().getName())
-					+ "\",\"totalMs\":"
-					+ totalCostMs
-					+ "}");
-			// #endregion
-		}
 	}
 
 	public void stop()

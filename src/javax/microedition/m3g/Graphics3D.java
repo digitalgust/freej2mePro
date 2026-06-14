@@ -327,55 +327,25 @@ public class Graphics3D
 		{
 			throw new NullPointerException();
 		}
-		long debugStartMs = System.currentTimeMillis();
-		org.recompile.mobile.Mobile.DebugWatchScope debugScope = org.recompile.mobile.Mobile.beginDebugWatchScope("E", "Graphics3D.render(World).watch", 1000L);
-		try
+		ensureTargetBound();
+		if (world.getActiveCamera() == null)
 		{
-			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "ensure-target");
-			ensureTargetBound();
-			if (world.getActiveCamera() == null)
-			{
-				throw new IllegalStateException();
-			}
-
-			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "clear");
-			clear(world.getBackground());
-			Transform worldCameraTransform = new Transform();
-			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "camera");
-			world.getActiveCamera().getCompositeTransform(worldCameraTransform);
-			setCamera(world.getActiveCamera(), worldCameraTransform);
-			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "lights");
-			resetLights();
-			collectLights(world);
-
-			for (int i = 0; i < world.getChildCount(); i++)
-			{
-				org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "child-" + i);
-				Node child = world.getChild(i);
-				if (child instanceof Mesh || child instanceof Sprite3D || child instanceof Group)
-				{
-					render(child, null);
-				}
-			}
+			throw new IllegalStateException();
 		}
-		finally
+
+		clear(world.getBackground());
+		Transform worldCameraTransform = new Transform();
+		world.getActiveCamera().getCompositeTransform(worldCameraTransform);
+		setCamera(world.getActiveCamera(), worldCameraTransform);
+		resetLights();
+		collectLights(world);
+
+		for (int i = 0; i < world.getChildCount(); i++)
 		{
-			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "done");
-			org.recompile.mobile.Mobile.finishDebugWatchScope(debugScope);
-			long totalCostMs = System.currentTimeMillis() - debugStartMs;
-			if (totalCostMs >= 200)
+			Node child = world.getChild(i);
+			if (child instanceof Mesh || child instanceof Sprite3D || child instanceof Group)
 			{
-				// #region debug-point C:slow-world-render
-				org.recompile.mobile.Mobile.reportDebugEvent("C", "Graphics3D.render(World)", "[DEBUG] slow world render", "{\"thread\":\""
-						+ org.recompile.mobile.Mobile.debugJson(Thread.currentThread().getName())
-						+ "\",\"totalMs\":"
-						+ totalCostMs
-						+ ",\"childCount\":"
-						+ world.getChildCount()
-						+ ",\"targetBound\":"
-						+ (target != null)
-						+ "}");
-				// #endregion
+				render(child, null);
 			}
 		}
 	}

@@ -64,7 +64,6 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
         // Create Image from resource name
         // System.out.println("Image From Resource Name");
         BufferedImage temp;
-        long debugStartMs = System.currentTimeMillis();
 
         InputStream stream = FreeJ2ME.getMobile().getPlatform().loader.getMIDletResourceAsStream(name);
 
@@ -87,22 +86,6 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
                 isNull = true;
             }
         }
-        long totalCostMs = System.currentTimeMillis() - debugStartMs;
-        if (totalCostMs >= 200) {
-            // #region debug-point D:slow-image-from-name
-            Mobile.reportDebugEvent("D", "PlatformImage.<init>(String)", "[DEBUG] slow image decode", "{\"resource\":\""
-                    + Mobile.debugJson(name)
-                    + "\",\"totalMs\":"
-                    + totalCostMs
-                    + ",\"width\":"
-                    + width
-                    + ",\"height\":"
-                    + height
-                    + ",\"isNull\":"
-                    + isNull
-                    + "}");
-            // #endregion
-        }
         platformImage = this;
     }
 
@@ -110,7 +93,6 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
         // Create Image from InputStream
         // System.out.println("Image From Stream");
         BufferedImage temp;
-        long debugStartMs = System.currentTimeMillis();
         try {
             temp = ImageIO.read(stream);
             width = (int) temp.getWidth();
@@ -123,20 +105,6 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
         } catch (Exception e) {
             System.out.println("Couldn't Load Image Stream");
             isNull = true;
-        }
-        long totalCostMs = System.currentTimeMillis() - debugStartMs;
-        if (totalCostMs >= 200) {
-            // #region debug-point D:slow-image-from-stream
-            Mobile.reportDebugEvent("D", "PlatformImage.<init>(InputStream)", "[DEBUG] slow image decode", "{\"totalMs\":"
-                    + totalCostMs
-                    + ",\"width\":"
-                    + width
-                    + ",\"height\":"
-                    + height
-                    + ",\"isNull\":"
-                    + isNull
-                    + "}");
-            // #endregion
         }
 
         platformImage = this;
