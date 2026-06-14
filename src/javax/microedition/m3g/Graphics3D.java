@@ -573,27 +573,24 @@ public class Graphics3D
 			}
 		}
 
-		if (!clearColor)
+		if (clearColor)
 		{
-			clearDepth(background);
-			return;
-		}
-
-		if (target instanceof PlatformGraphics)
-		{
-			PlatformGraphics graphics = (PlatformGraphics) target;
-			graphics.setColor(color & 0x00FFFFFF);
-			graphics.fillRect(viewx, viewy, vieww, viewh);
-		}
-		else if (target instanceof Graphics)
-		{
-			Graphics graphics = (Graphics) target;
-			graphics.setColor(color & 0x00FFFFFF);
-			graphics.fillRect(viewx, viewy, vieww, viewh);
-		}
-		else if (target instanceof Image2D)
-		{
-			fillImage((Image2D) target, color);
+			if (target instanceof PlatformGraphics)
+			{
+				PlatformGraphics graphics = (PlatformGraphics) target;
+				graphics.setColor(color & 0x00FFFFFF);
+				graphics.fillRect(viewx, viewy, vieww, viewh);
+			}
+			else if (target instanceof Graphics)
+			{
+				Graphics graphics = (Graphics) target;
+				graphics.setColor(color & 0x00FFFFFF);
+				graphics.fillRect(viewx, viewy, vieww, viewh);
+			}
+			else if (target instanceof Image2D)
+			{
+				fillImage((Image2D) target, color);
+			}
 		}
 
 		if (background != null)
@@ -609,15 +606,20 @@ public class Graphics3D
 		Image2D backgroundImage = background.getImage();
 		if (backgroundImage == null)
 		{
+			System.out.println("[M3G][Background] skip image render: background image is null");
 			return;
 		}
 		if (backgroundImage.getFormat() != Image2D.RGB && backgroundImage.getFormat() != Image2D.RGBA)
 		{
+			System.out.println("[M3G][Background] skip image render: unsupported image format="
+					+ imageFormatName(backgroundImage.getFormat()) + "(" + backgroundImage.getFormat() + ")");
 			return;
 		}
 		RenderSurface surface = getRenderSurface();
 		if (surface == null)
 		{
+			System.out.println("[M3G][Background] skip image render: no render surface for target="
+					+ (target == null ? "null" : target.getClass().getName()));
 			return;
 		}
 
@@ -625,6 +627,10 @@ public class Graphics3D
 		int sourceHeight = background.getCropHeight() > 0 ? background.getCropHeight() : backgroundImage.getHeight();
 		if (sourceWidth <= 0 || sourceHeight <= 0)
 		{
+			System.out.println("[M3G][Background] skip image render: invalid crop size "
+					+ sourceWidth + "x" + sourceHeight
+					+ " crop=(" + background.getCropX() + "," + background.getCropY()
+					+ "," + background.getCropWidth() + "," + background.getCropHeight() + ")");
 			return;
 		}
 		for (int y = 0; y < viewh; y++)
@@ -643,6 +649,25 @@ public class Graphics3D
 				}
 				surface.setPixel(viewx + x, viewy + y, getImagePixel(backgroundImage, sampleX, sampleY));
 			}
+		}
+	}
+
+	private static String imageFormatName(int format)
+	{
+		switch (format)
+		{
+			case Image2D.ALPHA:
+				return "ALPHA";
+			case Image2D.LUMINANCE:
+				return "LUMINANCE";
+			case Image2D.LUMINANCE_ALPHA:
+				return "LUMINANCE_ALPHA";
+			case Image2D.RGB:
+				return "RGB";
+			case Image2D.RGBA:
+				return "RGBA";
+			default:
+				return "UNKNOWN";
 		}
 	}
 
