@@ -309,6 +309,16 @@ public class Graphics3D {
             return;
         }
 
+        // Per JSR-184 spec, a node with renderingEnabled == false is never rendered.
+        // The reference implementation (and KEmulator's RenderPipe.isVisible) walk
+        // the whole ancestor chain, so a single disabled Group hides its entire
+        // subtree. PogoRoo's pogoroo.m3g authors the ScoreBoard branch with
+        // renderingEnabled == false to keep the HUD hidden; without this check
+        // freej2me still draws the ScoreCard sprite ("1-10") and the star mesh.
+        if (!node.isRenderingEnabled()) {
+            return;
+        }
+
         if (node instanceof Mesh) {
             Mesh mesh = (Mesh) node;
             for (int i = 0; i < mesh.getSubmeshCount(); i++) {
@@ -822,6 +832,16 @@ public class Graphics3D {
     }
 
     private void renderSprite(Sprite3D sprite, Transform transform, int scope) {
+        // Per the JSR-184 reference (m3gGetSpriteCoordinates) and KEmulator
+        // (Emulator3D.renderSprite), a sprite is only rendered when its origin
+        // projects inside the near/far depth range: in clip space, w > 0 and
+        // -w <= z <= w. Without this check a sprite whose origin sits outside the
+        // frustum (e.g. behind the camera, or in front of the near plane) is still
+        // rasterized, producing stray overlays that the standard implementations
+        // never draw (PogoRoo's "1-10" ScoreCard sprite was one such case).
+        if (!spriteOriginInsideFrustum(transform)) {
+            return;
+        }
         SpriteRenderData spriteData = createSpriteRenderData(sprite, transform);
         if (spriteData == null) {
             if (diagRenderEnabled()) {
@@ -852,6 +872,38 @@ public class Graphics3D {
         render(spriteData.vertices, spriteData.triangles, spriteData.appearance, spriteData.transform, scope);
     }
 
+    /**
+     * Tests whether the sprite's origin (the translation column of its world
+     * transform) projects inside the camera frustum's depth range, matching the
+     * reference implementation's visibility gate for sprites. Returns true only
+     * when, in clip space, w > 0 and -w <= z <= w.
+     */
+    private boolean spriteOriginInsideFrustum(Transform worldTransform) {
+        if (camera == null) {
+            return true;
+        }
+        float[] m = worldTransform.getMatrix();
+        float ox = m[3], oy = m[7], oz = m[11]; // origin = translation column (row-major)
+
+        // view = inverse(cameraTransform); transform origin into camera space
+        Transform view = new Transform(cameraTransform);
+        view.invert();
+        float[] vm = view.getMatrix();
+        float cx = vm[0]*ox + vm[1]*oy + vm[2]*oz + vm[3];
+        float cy = vm[4]*ox + vm[5]*oy + vm[6]*oz + vm[7];
+        float cz = vm[8]*ox + vm[9]*oy + vm[10]*oz + vm[11];
+
+        // Apply the camera projection to the camera-space origin.
+        Transform proj = camera.getProjectionTransform(vieww, viewh);
+        float[] pm = proj.getMatrix();
+        float clipX = pm[0]*cx + pm[1]*cy + pm[2]*cz + pm[3];
+        float clipY = pm[4]*cx + pm[5]*cy + pm[6]*cz + pm[7];
+        float clipZ = pm[8]*cx + pm[9]*cy + pm[10]*cz + pm[11];
+        float clipW = pm[12]*cx + pm[13]*cy + pm[14]*cz + pm[15];
+
+        return clipW > 0f && -clipW <= clipZ && clipZ <= clipW;
+    }
+
     private SpriteRenderData createSpriteRenderData(Sprite3D sprite, Transform transform) {
         Image2D image = sprite.getImage();
         if (image == null) {
@@ -864,12 +916,15 @@ public class Graphics3D {
             return null;
         }
 
-        int imageSpan = Math.max(image.getWidth(), image.getHeight());
-        float halfWidth = (Math.abs(cropWidth) / (float) imageSpan) * 0.5f;
-        float halfHeight = (Math.abs(cropHeight) / (float) imageSpan) * 0.5f;
-        if (halfWidth <= 0f || halfHeight <= 0f) {
-            return null;
-        }
+        // Reference m3gGetSpriteCoordinates (m3g_sprite.c) builds the sprite quad from
+        // unit camera-space vectors, so a scaled sprite is a 1.0 x 1.0 world-space quad
+        // regardless of the crop rectangle's aspect ratio (the crop only selects a
+        // sub-rectangle of the texture). The previous code normalized width and height
+        // by max(image.getWidth(), image.getHeight()) (imageSpan), which produced the
+        // wrong aspect ratio whenever the crop was not square (e.g. PogoRoo's 128x64
+        // ScoreCard was rendered too wide / too short). Use a unit quad here.
+        float halfWidth = 0.5f;
+        float halfHeight = 0.5f;
         if (!sprite.isScaled()) {
             // Unscaled sprites are defined in screen space; for now reuse the scaled path.
             halfWidth *= 0.5f;
@@ -931,6 +986,17 @@ public class Graphics3D {
     }
 
     private Appearance createSpriteAppearance(Sprite3D sprite, Image2D image) {
+        // Per JSR-184 (and as KEmulator / the reference implementation do), a sprite
+        // whose Appearance is null must not be rendered at all. Previously this method
+        // fabricated a default Appearance for such sprites, which is what caused the
+        // PogoRoo "1-10" ScoreCard (a sprite authored with no Appearance in pogoroo.m3g)
+        // to be drawn on top of the scene. Return null here so createSpriteRenderData
+        // skips it, matching the standard implementations.
+        Appearance base = sprite.getAppearance();
+        if (base == null) {
+            return null;
+        }
+
         Texture2D texture;
         try {
             texture = new Texture2D(image);
@@ -941,18 +1007,20 @@ public class Graphics3D {
         texture.setWrapping(Texture2D.WRAP_CLAMP, Texture2D.WRAP_CLAMP);
         texture.setFiltering(Texture2D.FILTER_BASE_LEVEL, Texture2D.FILTER_LINEAR);
 
-        Appearance base = sprite.getAppearance();
         Appearance appearance = new Appearance();
-        if (base != null) {
-            appearance.setCompositingMode(base.getCompositingMode());
-            appearance.setFog(base.getFog());
-            appearance.setMaterial(base.getMaterial());
-            appearance.setPolygonMode(base.getPolygonMode());
-            appearance.setLayer(base.getLayer());
-        } else {
-            PolygonMode polygonMode = new PolygonMode();
-            polygonMode.setCulling(PolygonMode.CULL_NONE);
-            appearance.setPolygonMode(polygonMode);
+        appearance.setCompositingMode(base.getCompositingMode());
+        appearance.setFog(base.getFog());
+        appearance.setMaterial(base.getMaterial());
+        appearance.setPolygonMode(base.getPolygonMode());
+        appearance.setLayer(base.getLayer());
+        // If the sprite's Appearance has no explicit CompositingMode, the rasterizer's
+        // "compositingMode == null" branch writes every pixel (FUNC_REPLACE) without
+        // honouring texture alpha, turning any transparent texels into a solid block.
+        // Default to ALPHA blending so transparent texels stay transparent.
+        if (appearance.getCompositingMode() == null) {
+            CompositingMode defaultMode = new CompositingMode();
+            defaultMode.setBlending(CompositingMode.ALPHA);
+            appearance.setCompositingMode(defaultMode);
         }
         appearance.setTexture(0, texture);
         return appearance;
@@ -1675,6 +1743,13 @@ public class Graphics3D {
                 if (srcAlpha < Math.round(alphaThreshold * 255f)) {
                     continue;
                 }
+                // A fully transparent source pixel (alpha == 0) contributes nothing
+                // to the framebuffer. Even with ALPHA blending the color is a no-op,
+                // so it must also be skipped for depth: otherwise it erects an
+                // invisible depth wall that hides geometry drawn afterwards (e.g. the
+                // transparent background of PogoRoo's ScoreCard sprite occluding the
+                // kangaroo). Only write depth when the pixel is at least partially
+                // visible.
 
                 int dstColor = surface.getPixel(x, y);
                 int composited = applyCompositing(dstColor, finalColor, compositingMode);
@@ -1682,7 +1757,7 @@ public class Graphics3D {
                 if (masked != dstColor) {
                     surface.setPixel(x, y, masked);
                 }
-                if (depthWrite) {
+                if (depthWrite && srcAlpha > 0) {
                     depthBuffer[depthIndex] = depth;
                 }
             }
