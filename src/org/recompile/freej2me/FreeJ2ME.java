@@ -82,6 +82,7 @@ public class FreeJ2ME extends J2meSandBox {
 
     public FreeJ2ME(String args[]) {
         this.args = args;
+//        System.setProperty("micro3d.dumpframe", "8");
 //        System.setProperty("freej2me.m3g.sprite.skip", "1");
 //        System.setProperty("freej2me.m3g.diag.leak", "true");
         //System.setProperty("freej2me.diag.render", "1");

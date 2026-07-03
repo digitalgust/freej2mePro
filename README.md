@@ -6,6 +6,7 @@ Plus:
 * Support full of com.nokia.mid.ui.DirectGraphics.drawImage maniputation.
 * Fixed java.microedition.lcdui package bugs.
 * Supported jsr184 java.microedition.m3g package.
+* Supported Mascot Capsule micro3D v3.
 
 
 <img src="https://raw.githubusercontent.com/digitalgust/freej2mePlus/master/web/3d_screenshot.png" alt="freej2me3d" width="672" height="300"></img>

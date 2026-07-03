@@ -139,10 +139,10 @@ public class MIDletLoader extends URLClassLoader {
             resource = "meta-inf/MANIFEST.MF";
             url = findResource(resource);
             if (url == null) {
-                resource = "META-INF/manifest.fm";
+                resource = "META-INF/manifest.mf";
                 url = findResource(resource);
                 if (url == null) {
-                    resource = "meta-inf/manifest.fm";
+                    resource = "meta-inf/manifest.mf";
                     url = findResource(resource);
                     if (url == null) {
                         return;

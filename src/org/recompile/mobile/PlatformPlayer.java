@@ -16,6 +16,8 @@
 */
 package org.recompile.mobile;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.Vector;
 import javax.sound.midi.MidiSystem;
@@ -274,6 +276,7 @@ public class PlatformPlayer implements Player
 	private class wavPlayer extends audioplayer
 	{
 
+		private byte[] wavData;
 		private AudioInputStream wavStream;
 		private Clip wavClip;
 
@@ -285,15 +288,14 @@ public class PlatformPlayer implements Player
 		{
 			try
 			{
-				wavStream = AudioSystem.getAudioInputStream(stream);
-				wavClip = AudioSystem.getClip();
-				wavClip.open(wavStream);
+				wavData = readAllBytes(stream);
+				reopenClip();
 				state = Player.PREFETCHED;
 			}
 			catch (Exception e) 
 			{ 
 				System.out.println("Couldn't load wav file: " + e.getMessage());
-				if (wavClip != null) wavClip.close();
+				closeClip();
 			}
 		}
 
@@ -306,7 +308,14 @@ public class PlatformPlayer implements Player
 				wavClip.setFramePosition(0);
 			}
 			time = wavClip.getMicrosecondPosition();
-			wavClip.start();
+			if (loops == -1)
+			{
+				wavClip.loop(Clip.LOOP_CONTINUOUSLY);
+			}
+			else
+			{
+				wavClip.start();
+			}
 			state = Player.STARTED;
 			notifyListeners(PlayerListener.STARTED, time);
 		}
@@ -322,15 +331,27 @@ public class PlatformPlayer implements Player
 
 		public void setLoopCount(int count)
 		{
-			if (wavClip == null) return;
 			loops = count;
-			wavClip.loop(count);
 		}
 
 		public long setMediaTime(long now)
 		{
 			if (wavClip == null) return 0;
-			wavClip.setMicrosecondPosition(now);
+			try
+			{
+				// Re-create the clip when rewinding to the beginning. DirectClip seek can
+				// block inside DirectAudioDevice.flush(), which freezes the game thread.
+				if (now <= 0)
+				{
+					reopenClip();
+					return 0;
+				}
+				wavClip.setMicrosecondPosition(now);
+			}
+			catch (Exception e)
+			{
+				return getMediaTime();
+			}
 			return now;
 		}
 		public long getMediaTime()
@@ -343,6 +364,67 @@ public class PlatformPlayer implements Player
 		{
 			if (wavClip == null) return false;
 			return wavClip.isRunning();
+		}
+
+		public void deallocate()
+		{
+			closeClip();
+		}
+
+		private void reopenClip() throws Exception
+		{
+			closeClip();
+			if (wavData == null || wavData.length == 0) return;
+			wavStream = AudioSystem.getAudioInputStream(new ByteArrayInputStream(wavData));
+			wavClip = AudioSystem.getClip();
+			wavClip.open(wavStream);
+			time = 0L;
+			if (loops > 0)
+			{
+				wavClip.setLoopPoints(0, -1);
+			}
+		}
+
+		private void closeClip()
+		{
+			try
+			{
+				if (wavClip != null)
+				{
+					wavClip.stop();
+					wavClip.close();
+				}
+			}
+			catch (Exception e) { }
+			try
+			{
+				if (wavStream != null)
+				{
+					wavStream.close();
+				}
+			}
+			catch (Exception e) { }
+			wavClip = null;
+			wavStream = null;
+		}
+	}
+
+	private static byte[] readAllBytes(InputStream stream) throws java.io.IOException
+	{
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		try
+		{
+			byte[] buffer = new byte[4096];
+			int read;
+			while ((read = stream.read(buffer)) != -1)
+			{
+				out.write(buffer, 0, read);
+			}
+			return out.toByteArray();
+		}
+		finally
+		{
+			try { stream.close(); } catch (Exception e) { }
 		}
 	}
 
