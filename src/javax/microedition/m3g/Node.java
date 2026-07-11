@@ -188,31 +188,18 @@ public abstract class Node extends Transformable
 		float[] rotation = buildAlignmentRotation(targetZ, targetY);
 
 		Transform transform = new Transform();
-		getTransform(transform);
-		float[] matrix = transform.getMatrix();
-		float tx = matrix[3];
-		float ty = matrix[7];
-		float tz = matrix[11];
-		float sx = axisLength(matrix[0], matrix[4], matrix[8]);
-		float sy = axisLength(matrix[1], matrix[5], matrix[9]);
-		float sz = axisLength(matrix[2], matrix[6], matrix[10]);
-
-		float[] aligned = new float[16];
+		float[] aligned = transform.getMatrix();
 		M3GMath.setIdentity(aligned);
-		aligned[0] = rotation[0] * sx;
-		aligned[4] = rotation[1] * sx;
-		aligned[8] = rotation[2] * sx;
-		aligned[1] = rotation[3] * sy;
-		aligned[5] = rotation[4] * sy;
-		aligned[9] = rotation[5] * sy;
-		aligned[2] = rotation[6] * sz;
-		aligned[6] = rotation[7] * sz;
-		aligned[10] = rotation[8] * sz;
-		aligned[3] = tx;
-		aligned[7] = ty;
-		aligned[11] = tz;
-		transform.set(aligned);
-		setTransform(transform);
+		aligned[0] = rotation[0];
+		aligned[4] = rotation[1];
+		aligned[8] = rotation[2];
+		aligned[1] = rotation[3];
+		aligned[5] = rotation[4];
+		aligned[9] = rotation[5];
+		aligned[2] = rotation[6];
+		aligned[6] = rotation[7];
+		aligned[10] = rotation[8];
+		setOrientationTransform(transform);
 	}
 
 	private Node resolveEffectiveReference(Node explicitReference, Node commonReference)

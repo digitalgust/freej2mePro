@@ -1338,20 +1338,18 @@ public class Loader
 		private void applyDeferredTransformableState(Transformable target, TransformableState state)
 		{
 			applyDeferredObject3DState(target, state.objectState);
-			Transform transform = new Transform();
 			if (state.translation != null)
 			{
-				transform.postTranslate(state.translation[0], state.translation[1], state.translation[2]);
-				transform.postRotate(state.orientationAngle, state.orientationAxis[0], state.orientationAxis[1], state.orientationAxis[2]);
-				transform.postScale(state.scale[0], state.scale[1], state.scale[2]);
+				target.setTranslation(state.translation[0], state.translation[1], state.translation[2]);
+				target.setOrientation(state.orientationAngle, state.orientationAxis[0], state.orientationAxis[1], state.orientationAxis[2]);
+				target.setScale(state.scale[0], state.scale[1], state.scale[2]);
 			}
 			if (state.generalTransform != null)
 			{
 				Transform general = new Transform();
 				general.set(state.generalTransform);
-				transform.postMultiply(general);
+				target.setTransform(general);
 			}
-			target.setTransform(transform);
 		}
 
 		private void applyDeferredNodeState(Node target, NodeState state) throws IOException

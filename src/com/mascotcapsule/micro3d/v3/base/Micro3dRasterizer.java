@@ -31,7 +31,6 @@ public final class Micro3dRasterizer {
 	public static final int BLEND_HALF = 2;
 	public static final int BLEND_ADD = 4;
 	public static final int BLEND_SUB = 6;
-	private static final java.util.concurrent.atomic.AtomicInteger DEBUG_BLACK_LOG_COUNT = new java.util.concurrent.atomic.AtomicInteger();
 
 	private final Micro3dSurface surface;
 	private final Rectangle clip;
@@ -173,11 +172,15 @@ public final class Micro3dRasterizer {
 					if (shading.colorKey && ((texel >>> 24) & 0xFF) < 128) {
 						continue; // color-key: matches tex.fsh (alpha < 0.5 discard)
 					}
-					// Matches reference tex.fsh: final alpha is 1.0 — texture alpha is only
-					// consulted for color-key discard above. When colorKey is off, palette
-					// index 0 must still show its RGB (it is a valid opaque color, not a hole),
-					// otherwise large scene areas painted with index 0 turn into black speckle.
-					finalColor = modulateOpaque(litColor, texel);
+					if (shading.useTextureAlpha) {
+						finalColor = modulate(litColor, texel);
+					} else {
+						// Matches reference tex.fsh: final alpha is 1.0 — texture alpha is only
+						// consulted for color-key discard above. When colorKey is off, palette
+						// index 0 must still show its RGB (it is a valid opaque color, not a hole),
+						// otherwise large scene areas painted with index 0 turn into black speckle.
+						finalColor = modulateOpaque(litColor, texel);
+					}
 				}
 
 				// sphere/specular map additive sampling (figures + lit primitives only)
@@ -199,15 +202,6 @@ public final class Micro3dRasterizer {
 
 				int dstColor = surface.getPixel(x, y);
 				int composited = applyBlend(dstColor, finalColor, shading.blendMode);
-				if (DEBUG_BLACK_LOG_COUNT.get() < 300 && (composited & 0xFFFFFF) == 0) {
-					DEBUG_BLACK_LOG_COUNT.incrementAndGet();
-					System.err.println("[BLACKPIX] x="+x+" y="+y
-						+" blendMode="+shading.blendMode+" colorKey="+shading.colorKey
-						+" final=0x"+Integer.toHexString(finalColor)
-						+" dst=0x"+Integer.toHexString(dstColor)
-						+" textured="+(shading.texture!=null)
-						+" lit="+ (shading.light!=null));
-				}
 				if (composited != dstColor) {
 					surface.setPixel(x, y, composited);
 				}
@@ -235,12 +229,14 @@ public final class Micro3dRasterizer {
 		public final int alphaThreshold;  // 0..255
 		public final boolean cullBack;
 		public final boolean cullFront;
+		public final boolean useTextureAlpha;
 
 		public Shading(TextureData texture, TextureData sphere, Light light,
 					   boolean enableLighting, boolean toon, int toonThreshold,
 					   int toonHigh, int toonLow, int blendMode, boolean colorKey,
 					   boolean flatShading, int alphaThreshold,
-					   boolean cullBack, boolean cullFront) {
+					   boolean cullBack, boolean cullFront,
+					   boolean useTextureAlpha) {
 			this.texture = texture;
 			this.sphere = sphere;
 			this.light = light;
@@ -255,6 +251,7 @@ public final class Micro3dRasterizer {
 			this.alphaThreshold = alphaThreshold;
 			this.cullBack = cullBack;
 			this.cullFront = cullFront;
+			this.useTextureAlpha = useTextureAlpha;
 		}
 	}
 

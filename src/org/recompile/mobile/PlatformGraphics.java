@@ -271,6 +271,9 @@ public class PlatformGraphics extends javax.microedition.lcdui.Graphics implemen
                 if (processAlpha && (c & 0xff000000) == 0) {
                     continue;
                 }
+                if (!processAlpha) {
+                    c |= 0xFF000000;
+                }
                 canvas.setRGB(x + dx, y + dy, c);
             }
         }

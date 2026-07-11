@@ -114,7 +114,7 @@ public class Group extends Node
 			Node child = group.getChild(i);
 			Transform combined = new Transform(parentTransform);
 			Transform local = new Transform();
-			child.getTransform(local);
+			child.getLocalCompositeTransform(local);
 			combined.postMultiply(local);
 
 			if (child instanceof Mesh)

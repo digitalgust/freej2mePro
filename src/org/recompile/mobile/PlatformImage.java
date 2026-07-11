@@ -165,7 +165,7 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
         canvas = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         createGraphics();
 
-        gc.drawRGB(rgb, 0, width, 0, 0, width, height, true);
+        gc.drawRGB(rgb, 0, width, 0, 0, width, height, processAlpha);
 
         platformImage = this;
     }

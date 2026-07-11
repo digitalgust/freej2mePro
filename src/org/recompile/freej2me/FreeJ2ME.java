@@ -82,14 +82,6 @@ public class FreeJ2ME extends J2meSandBox {
 
     public FreeJ2ME(String args[]) {
         this.args = args;
-//        System.setProperty("micro3d.dumpframe", "8");
-//        System.setProperty("freej2me.m3g.sprite.skip", "1");
-//        System.setProperty("freej2me.m3g.diag.leak", "true");
-        //System.setProperty("freej2me.diag.render", "1");
-        //System.setProperty("freej2me.diag.tint", "1");
-        //System.setProperty(RULES_PROPERTY,"ENTRY_PRINT|q|a|(FFFFFFFFF)V|q.a camera params: {0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}");
-        //System.setProperty(RULES_PROPERTY,"ENTRY_PRINT|k|c|(Ljavax/microedition/lcdui/Graphics;)V|sky draw called");
-        //System.setProperty("freej2me.bytecode.injection.rules", "ENTRY_PRINT|o|a|()I|o.a called\nEXIT_PRINT|o|a|()I|o.a ret={ret}");
         ThreadGroup tg = new ThreadGroup("threadgroup-" + this);
         Thread t = new Thread(tg, () -> {//这个线程相当于是一个沙盒，和外部代码隔离，这样就可以同时运行多个freej2me实例
             eventThread = Thread.currentThread();
@@ -300,35 +292,52 @@ public class FreeJ2ME extends J2meSandBox {
 
     /**
      * 处理事件
+     *
+     * 事件循环顺序：先处理所有排队的输入事件（按键/鼠标），再至多做一帧重绘。
+     *
+     * 这里不能用 `while (canvas.drainPendingRepaint()) {}` 把所有重绘先排干再处理输入：
+     * drainPendingRepaint() 会同步执行 paint()，对于 3D 游戏意味着一整帧 M3G 软件光栅化
+     * （逐像素 BufferedImage.getRGB/setRGB），非常慢。而很多游戏的渲染线程会用
+     * `while(running){ repaint(); Thread.yield(); }` 这种忙循环不断请求重绘，导致
+     * repaintRequested 几乎永远为 true，结果输入事件被几十秒级别地饿死，按键毫无响应。
+     * 限制每轮只画一帧、并保证输入优先，可消除该饿死问题，同时仍把 Graphics3D 生命周期
+     * 串行化在本线程上。
      */
     void processEvent() {
         while (!exit) {
-            try {
-                Display display = getMobile().getDisplay();
-                if (display != null && display.getCurrent() instanceof javax.microedition.lcdui.Canvas) {
-                    javax.microedition.lcdui.Canvas canvas = (javax.microedition.lcdui.Canvas) display.getCurrent();
-                    while (canvas.drainPendingRepaint()) {
-                        // Drain all queued repaints on the event thread to keep Graphics3D lifecycle serialized.
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            if (proxyAwtEvents.isEmpty()) {
-                synchronized (proxyAwtEvents) {
-                    try {
-                        proxyAwtEvents.wait(30);
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-            } else {
+            // 1) 先把已排队的输入事件全部处理完（按键/鼠标），保证输入响应不被下一帧慢重绘阻塞。
+            while (!proxyAwtEvents.isEmpty()) {
                 try {
                     Runnable e = proxyAwtEvents.remove(0);
                     e.run();
                     genKeyRepeat();
                 } catch (Exception ex) {
                     ex.printStackTrace();
+                }
+            }
+
+            // 2) 至多只画一帧重绘。注意：paint() 内部游戏线程很可能再次请求重绘，
+            //    但这里不再循环排干——把下一帧留到下一轮迭代，好让输入事件有机会插队处理。
+            try {
+                Display display = getMobile().getDisplay();
+                if (display != null && display.getCurrent() instanceof javax.microedition.lcdui.Canvas) {
+                    javax.microedition.lcdui.Canvas canvas = (javax.microedition.lcdui.Canvas) display.getCurrent();
+                    canvas.drainPendingRepaint();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            // 3) 既无输入、又无重绘可做时，短暂等待，避免空转占用 CPU。
+            if (proxyAwtEvents.isEmpty()) {
+                synchronized (proxyAwtEvents) {
+                    if (proxyAwtEvents.isEmpty()) {
+                        try {
+                            proxyAwtEvents.wait(30);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
                 }
             }
         }

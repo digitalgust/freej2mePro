@@ -18,7 +18,12 @@ package javax.microedition.m3g;
 
 public abstract class Transformable extends Object3D
 {
-	private final Transform transform = new Transform();
+	private static final float EPSILON = 1.0e-6f;
+
+	private final Transform matrix = new Transform();
+	private final Transform orientation = new Transform();
+	private final float[] translation = new float[] { 0f, 0f, 0f };
+	private final float[] scale = new float[] { 1f, 1f, 1f };
 
 	public void getCompositeTransform(Transform transform)
 	{
@@ -41,53 +46,7 @@ public abstract class Transformable extends Object3D
 			throw new IllegalArgumentException();
 		}
 
-		float[] matrix = transform.getMatrix();
-		float sx = getAxisLength(matrix[0], matrix[4], matrix[8]);
-		float sy = getAxisLength(matrix[1], matrix[5], matrix[9]);
-		float sz = getAxisLength(matrix[2], matrix[6], matrix[10]);
-		if (sx == 0f || sy == 0f || sz == 0f)
-		{
-			angleAxis[0] = 0f;
-			angleAxis[1] = 0f;
-			angleAxis[2] = 0f;
-			angleAxis[3] = 1f;
-			return;
-		}
-
-		float r00 = matrix[0] / sx;
-		float r11 = matrix[5] / sy;
-		float r22 = matrix[10] / sz;
-		float trace = r00 + r11 + r22;
-		float cos = (trace - 1f) * 0.5f;
-		if (cos > 1f) { cos = 1f; }
-		if (cos < -1f) { cos = -1f; }
-		float angle = (float) Math.toDegrees(Math.acos(cos));
-		if (Math.abs(angle) < 1.0e-6f)
-		{
-			angleAxis[0] = 0f;
-			angleAxis[1] = 0f;
-			angleAxis[2] = 0f;
-			angleAxis[3] = 1f;
-			return;
-		}
-
-		float rx = (matrix[9] / sz - matrix[6] / sy);
-		float ry = (matrix[2] / sx - matrix[8] / sz);
-		float rz = (matrix[4] / sy - matrix[1] / sx);
-		float length = getAxisLength(rx, ry, rz);
-		if (length == 0f)
-		{
-			angleAxis[0] = angle;
-			angleAxis[1] = 0f;
-			angleAxis[2] = 0f;
-			angleAxis[3] = 1f;
-			return;
-		}
-
-		angleAxis[0] = angle;
-		angleAxis[1] = -rx / length;
-		angleAxis[2] = -ry / length;
-		angleAxis[3] = -rz / length;
+		extractAngleAxis(orientation.getMatrix(), angleAxis);
 	}
 
 	public void getScale(float[] xyz)
@@ -101,10 +60,9 @@ public abstract class Transformable extends Object3D
 			throw new IllegalArgumentException();
 		}
 
-		float[] matrix = transform.getMatrix();
-		xyz[0] = getAxisLength(matrix[0], matrix[4], matrix[8]);
-		xyz[1] = getAxisLength(matrix[1], matrix[5], matrix[9]);
-		xyz[2] = getAxisLength(matrix[2], matrix[6], matrix[10]);
+		xyz[0] = scale[0];
+		xyz[1] = scale[1];
+		xyz[2] = scale[2];
 	}
 
 	public void getTransform(Transform transform)
@@ -113,7 +71,7 @@ public abstract class Transformable extends Object3D
 		{
 			throw new NullPointerException();
 		}
-		transform.set(this.transform);
+		transform.set(matrix);
 	}
 
 	public void getTranslation(float[] xyz)
@@ -127,54 +85,55 @@ public abstract class Transformable extends Object3D
 			throw new IllegalArgumentException();
 		}
 
-		float[] matrix = transform.getMatrix();
-		xyz[0] = matrix[3];
-		xyz[1] = matrix[7];
-		xyz[2] = matrix[11];
+		xyz[0] = translation[0];
+		xyz[1] = translation[1];
+		xyz[2] = translation[2];
 	}
 
 	public void postRotate(float angle, float ax, float ay, float az)
 	{
-		transform.postRotate(angle, ax, ay, az);
+		if (!validateRotation(angle, ax, ay, az))
+		{
+			return;
+		}
+		orientation.postRotate(angle, ax, ay, az);
 	}
 
 	public void preRotate(float angle, float ax, float ay, float az)
 	{
-		Transform rotation = new Transform();
-		rotation.postRotate(angle, ax, ay, az);
-		rotation.postMultiply(transform);
-		transform.set(rotation);
+		if (!validateRotation(angle, ax, ay, az))
+		{
+			return;
+		}
+
+		Transform delta = new Transform();
+		delta.postRotate(angle, ax, ay, az);
+		delta.postMultiply(orientation);
+		orientation.set(delta);
 	}
 
 	public void scale(float sx, float sy, float sz)
 	{
-		transform.postScale(sx, sy, sz);
+		scale[0] *= sx;
+		scale[1] *= sy;
+		scale[2] *= sz;
 	}
 
 	public void setOrientation(float angle, float ax, float ay, float az)
 	{
-		float[] translation = new float[3];
-		float[] scale = new float[3];
-		getTranslation(translation);
-		getScale(scale);
-
-		transform.setIdentity();
-		transform.postTranslate(translation[0], translation[1], translation[2]);
-		transform.postRotate(angle, ax, ay, az);
-		transform.postScale(scale[0], scale[1], scale[2]);
+		orientation.setIdentity();
+		if (!validateRotation(angle, ax, ay, az))
+		{
+			return;
+		}
+		orientation.postRotate(angle, ax, ay, az);
 	}
 
 	public void setScale(float sx, float sy, float sz)
 	{
-		float[] translation = new float[3];
-		float[] orientation = new float[4];
-		getTranslation(translation);
-		getOrientation(orientation);
-
-		transform.setIdentity();
-		transform.postTranslate(translation[0], translation[1], translation[2]);
-		transform.postRotate(orientation[0], orientation[1], orientation[2], orientation[3]);
-		transform.postScale(sx, sy, sz);
+		scale[0] = sx;
+		scale[1] = sy;
+		scale[2] = sz;
 	}
 
 	public void setTransform(Transform transform)
@@ -183,23 +142,21 @@ public abstract class Transformable extends Object3D
 		{
 			throw new NullPointerException();
 		}
-		this.transform.set(transform);
+		this.matrix.set(transform);
 	}
 
 	public void setTranslation(float tx, float ty, float tz)
 	{
-		float[] matrix = transform.getMatrix();
-		matrix[3] = tx;
-		matrix[7] = ty;
-		matrix[11] = tz;
+		translation[0] = tx;
+		translation[1] = ty;
+		translation[2] = tz;
 	}
 
 	public void translate(float tx, float ty, float tz)
 	{
-		float[] matrix = transform.getMatrix();
-		matrix[3] += tx;
-		matrix[7] += ty;
-		matrix[11] += tz;
+		translation[0] += tx;
+		translation[1] += ty;
+		translation[2] += tz;
 	}
 
 	private static void appendCompositeTransform(Transform target, Transformable current)
@@ -214,13 +171,76 @@ public abstract class Transformable extends Object3D
 		}
 
 		Transform local = new Transform();
-		current.getTransform(local);
+		current.getLocalCompositeTransform(local);
 		target.postMultiply(local);
 	}
 
-	private static float getAxisLength(float x, float y, float z)
+	void getLocalCompositeTransform(Transform transform)
 	{
-		return (float) Math.sqrt(x * x + y * y + z * z);
+		transform.setIdentity();
+		transform.postTranslate(translation[0], translation[1], translation[2]);
+		transform.postMultiply(orientation);
+		transform.postScale(scale[0], scale[1], scale[2]);
+		transform.postMultiply(matrix);
+	}
+
+	void setOrientationQuat(float qx, float qy, float qz, float qw)
+	{
+		orientation.setIdentity();
+		orientation.postRotateQuat(qx, qy, qz, qw);
+	}
+
+	void setOrientationTransform(Transform transform)
+	{
+		orientation.set(transform);
+	}
+
+	private static boolean validateRotation(float angle, float ax, float ay, float az)
+	{
+		if (Math.abs(angle) <= EPSILON)
+		{
+			return false;
+		}
+		float lengthSquared = ax * ax + ay * ay + az * az;
+		if (lengthSquared <= EPSILON * EPSILON)
+		{
+			throw new IllegalArgumentException();
+		}
+		return true;
+	}
+
+	private static void extractAngleAxis(float[] matrix, float[] angleAxis)
+	{
+		float trace = matrix[0] + matrix[5] + matrix[10];
+		float cos = (trace - 1f) * 0.5f;
+		cos = Math.max(-1f, Math.min(1f, cos));
+		float angle = (float) Math.toDegrees(Math.acos(cos));
+		if (Math.abs(angle) <= EPSILON)
+		{
+			angleAxis[0] = 0f;
+			angleAxis[1] = 0f;
+			angleAxis[2] = 0f;
+			angleAxis[3] = 1f;
+			return;
+		}
+
+		float rx = matrix[9] - matrix[6];
+		float ry = matrix[2] - matrix[8];
+		float rz = matrix[4] - matrix[1];
+		float length = (float) Math.sqrt(rx * rx + ry * ry + rz * rz);
+		if (length <= EPSILON)
+		{
+			angleAxis[0] = angle;
+			angleAxis[1] = 0f;
+			angleAxis[2] = 0f;
+			angleAxis[3] = 1f;
+			return;
+		}
+
+		angleAxis[0] = angle;
+		angleAxis[1] = -rx / length;
+		angleAxis[2] = -ry / length;
+		angleAxis[3] = -rz / length;
 	}
 
 }

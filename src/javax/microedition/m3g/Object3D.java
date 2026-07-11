@@ -523,16 +523,7 @@ public abstract class Object3D
 
 	private static void applyQuaternionOrientation(Transformable transformable, float[] quaternion)
 	{
-		float[] translation = new float[3];
-		float[] scale = new float[3];
-		transformable.getTranslation(translation);
-		transformable.getScale(scale);
-
-		Transform transform = new Transform();
-		transform.postTranslate(translation[0], translation[1], translation[2]);
-		transform.postRotateQuat(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
-		transform.postScale(scale[0], scale[1], scale[2]);
-		transformable.setTransform(transform);
+		transformable.setOrientationQuat(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
 	}
 
 	private static void applyCrop(Background background, float[] value)

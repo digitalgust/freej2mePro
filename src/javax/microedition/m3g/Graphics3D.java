@@ -44,22 +44,6 @@ public class Graphics3D {
     private int vieww;
     private int viewh;
 
-    private static String fmt(float v) {
-        return (v >= 0 ? " " : "") + Math.round(v * 10f) / 10f;
-    }
-
-    // 诊断开关统一入口：
-    //   -Dfreej2me.diag.render  打印每次 render 的视口/网格/变换/Sprite 跳过原因
-    //   -Dfreej2me.diag.tint    按顶点数把网格染成纯色，忽略纹理，用于定位几何
-    // 默认关闭，正常游戏不应有任何 diag 输出。
-    private static boolean diagRenderEnabled() {
-        return System.getProperty("freej2me.diag.render") != null;
-    }
-
-    private static boolean diagTintEnabled() {
-        return System.getProperty("freej2me.diag.tint") != null;
-    }
-
     private float near = 0f;
     private float far = 1f;
     private Object target;
@@ -73,8 +57,6 @@ public class Graphics3D {
     private final Hashtable morphedVertexBufferCache = new Hashtable();
     private final Backend softwareBackend;
     private final Backend backend;
-    private final java.util.HashSet paraStackLogged = new java.util.HashSet();
-
     static {
         properties = new Hashtable();
         properties.put("supportAntialiasing", Boolean.FALSE);
@@ -260,35 +242,6 @@ public class Graphics3D {
         // multiplying in the mesh composite.)
         Transform combined = copyTransform(transform);
 
-        // DIAGNOSTIC (Tower Bloxx): enabled only when -Dfreej2me.diag.render is set.
-        // Logs every root render() call with class + blend mode + vertex count, to
-        // identify the parachute mesh and tell when it stops/keeps rendering.
-        if (camera != null && node instanceof Mesh
-                && diagRenderEnabled()) {
-            try {
-                float[] m = new float[16];
-                combined.get(m);
-                Mesh dm = (Mesh) node;
-                String blend = "?";
-                int verts = -1;
-                try {
-                    if (dm.getSubmeshCount() > 0) {
-                        Appearance ap = dm.getAppearance(0);
-                        if (ap != null && ap.getCompositingMode() != null) {
-                            blend = String.valueOf(ap.getCompositingMode().getBlending());
-                        }
-                    }
-                    if (dm.getVertexBuffer() != null) {
-                        verts = dm.getVertexBuffer().getVertexCount();
-                    }
-                } catch (Throwable e) { /* ignore */ }
-                System.out.println("[diag.render] vp=" + viewx + "," + viewy + "," + vieww + "x" + viewh
-                        + " " + node.getClass().getSimpleName()
-                        + " blend=" + blend + " verts=" + verts
-                        + " tx=" + fmt(m[3]) + " ty=" + fmt(m[7]) + " tz=" + fmt(m[11]));
-            } catch (Throwable t) { /* ignore */ }
-        }
-
         renderNodeWithTransform(node, combined);
     }
 
@@ -357,7 +310,7 @@ public class Graphics3D {
                     // reference traversal: child.toCamera = parent.toCamera * child.composite.
                     Transform childCombined = copyTransform(combined);
                     Transform childLocal = new Transform();
-                    child.getTransform(childLocal);
+                    child.getLocalCompositeTransform(childLocal);
                     childCombined.postMultiply(childLocal);
                     renderNodeWithTransform(child, childCombined);
                 }
@@ -414,7 +367,7 @@ public class Graphics3D {
                 // the subtree applying each node's local transform.
                 Transform childCombined = copyTransform(null); // identity base
                 Transform childLocal = new Transform();
-                child.getTransform(childLocal);
+                child.getLocalCompositeTransform(childLocal);
                 childCombined.postMultiply(childLocal);
                 renderNodeWithTransform(child, childCombined);
             }
@@ -632,30 +585,16 @@ public class Graphics3D {
             return;
         }
         if (backgroundImage.getFormat() != Image2D.RGB && backgroundImage.getFormat() != Image2D.RGBA) {
-            if (diagRenderEnabled()) {
-                System.out.println("[M3G][Background] skip image render: unsupported image format="
-                        + imageFormatName(backgroundImage.getFormat()) + "(" + backgroundImage.getFormat() + ")");
-            }
             return;
         }
         RenderSurface surface = getRenderSurface();
         if (surface == null) {
-            if (diagRenderEnabled()) {
-                System.out.println("[M3G][Background] skip image render: no render surface for target="
-                        + (target == null ? "null" : target.getClass().getName()));
-            }
             return;
         }
 
         int sourceWidth = background.getCropWidth() > 0 ? background.getCropWidth() : backgroundImage.getWidth();
         int sourceHeight = background.getCropHeight() > 0 ? background.getCropHeight() : backgroundImage.getHeight();
         if (sourceWidth <= 0 || sourceHeight <= 0) {
-            if (diagRenderEnabled()) {
-                System.out.println("[M3G][Background] skip image render: invalid crop size "
-                        + sourceWidth + "x" + sourceHeight
-                        + " crop=(" + background.getCropX() + "," + background.getCropY()
-                        + "," + background.getCropWidth() + "," + background.getCropHeight() + ")");
-            }
             return;
         }
         for (int y = 0; y < viewh; y++) {
@@ -771,45 +710,6 @@ public class Graphics3D {
         CompositingMode compositingMode = appearance != null ? appearance.getCompositingMode() : null;
         int defaultColor = resolveBaseColor(vertices, appearance);
 
-        // DIAGNOSTIC (parachute): when -Dfreej2me.diag.render is set, log the z-position
-        // of the parachute meshes (verts 54 = canopy, 126 = body) to see whether they
-        // keep moving or freeze (the "never disappears" bug). Includes mesh identity
-        // hash to distinguish multiple verts=54 objects, and the call stack so we can
-        // see which game code path is rendering each.
-        if (diagRenderEnabled()) {
-            int vc;
-            try {
-                vc = vertices.getVertexCount();
-            } catch (Throwable t) {
-                vc = -1;
-            }
-            if (vc == 54 || vc == 126 || vc == 100) {
-                float[] m = new float[16];
-                transform.get(m);
-                int id = System.identityHashCode(vertices);
-                String key = id + "_" + vc + "_" + fmt(m[3]);
-                if (!paraStackLogged.contains(key)) {
-                    paraStackLogged.add(key);
-                    System.out.println("[diag.para] FIRST id=" + id + " verts=" + vc
-                            + " tx=" + fmt(m[3]) + " ty=" + fmt(m[7]) + " tz=" + fmt(m[11]));
-                    new Throwable().printStackTrace(System.out);
-                }
-            }
-        }
-
-        // DIAGNOSTIC TINT: enabled by -Dfreej2me.diag.tint=1. Overrides the base
-        // color with a fixed color chosen by a "mesh fingerprint" (vertex count).
-        // Also disables textures so the flat color is visible. Lets the player
-        // visually identify which object is which on screen. Disabled (no change)
-        // when the property is absent.
-        if (diagTintEnabled()) {
-            int tint = pickTintColor(vertices, compositingMode, transform);
-            if (tint != 0) {
-                defaultColor = tint;
-                textures = null;   // force flat color, ignore textures
-                fog = null;        // ignore fog for clarity
-            }
-        }
         ProjectedVertex[] projected = projectVertices(vertices, positionArray, normalArray, colorArray, texCoordArrays, positionScaleBias, texScaleBias, modelViewProjection, modelView, copyTransform(transform), appearance, defaultColor, textures, fog);
         int[] rawIndices = triangles.getRawIndices();
         int[] stripLengths = triangles.getStripLengths();
@@ -844,30 +744,7 @@ public class Graphics3D {
         }
         SpriteRenderData spriteData = createSpriteRenderData(sprite, transform);
         if (spriteData == null) {
-            if (diagRenderEnabled()) {
-                System.out.println("[diag.render] SPRITE skipped (null render data) crop="
-                        + sprite.getCropWidth() + "x" + sprite.getCropHeight()
-                        + " img=" + (sprite.getImage() == null ? "null" : sprite.getImage().getWidth() + "x" + sprite.getImage().getHeight()));
-            }
             return;
-        }
-        if (diagRenderEnabled()) {
-            float[] m = new float[16];
-            transform.get(m);
-            int blend = -1;
-            boolean dt = true, dw = true;
-            try {
-                CompositingMode cm = sprite.getAppearance() != null ? sprite.getAppearance().getCompositingMode() : null;
-                if (cm != null) {
-                    blend = cm.getBlending();
-                    dt = cm.isDepthTestEnabled();
-                    dw = cm.isDepthWriteEnabled();
-                }
-            } catch (Throwable e) {
-            }
-            System.out.println("[diag.render] SPRITE crop=" + sprite.getCropWidth() + "x" + sprite.getCropHeight()
-                    + " blend=" + blend + " depthTest=" + dt + " depthWrite=" + dw
-                    + " tx=" + fmt(m[3]) + " ty=" + fmt(m[7]) + " tz=" + fmt(m[11]));
         }
         render(spriteData.vertices, spriteData.triangles, spriteData.appearance, spriteData.transform, scope);
     }
@@ -1698,6 +1575,13 @@ public class Graphics3D {
         float alphaThreshold = compositingMode != null ? compositingMode.getAlphaThreshold() : 0f;
         float depthOffset = compositingMode != null ? compositingMode.getDepthOffsetUnits() : 0f;
         boolean flatShading = polygonMode != null && polygonMode.getShading() == PolygonMode.SHADE_FLAT;
+        // 是否处于"半透明混合"模式（ALPHA / ALPHA_ADD / MODULATE / MODULATE_X2）。
+        // REPLACE 与 compositingMode==null（默认）属不透明渲染：参考实现
+        // (m3gApplyDefaultCompositingMode / m3gApplyCompositingMode) 用 glDepthMask
+        // 无条件写深度、且默认关闭 glAlphaTest，因此即便纹素 alpha==0 也写深度，
+        // 不会留下"深度洞"。只有真正的半透明混合才需要按 alpha gate 深度写入。
+        boolean translucentBlending = compositingMode != null
+                && compositingMode.getBlending() != CompositingMode.REPLACE;
 
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
@@ -1743,13 +1627,9 @@ public class Graphics3D {
                 if (srcAlpha < Math.round(alphaThreshold * 255f)) {
                     continue;
                 }
-                // A fully transparent source pixel (alpha == 0) contributes nothing
-                // to the framebuffer. Even with ALPHA blending the color is a no-op,
-                // so it must also be skipped for depth: otherwise it erects an
-                // invisible depth wall that hides geometry drawn afterwards (e.g. the
-                // transparent background of PogoRoo's ScoreCard sprite occluding the
-                // kangaroo). Only write depth when the pixel is at least partially
-                // visible.
+                // alpha==0 的片元在 REPLACE/默认模式下仍然写深度（见下方 writeDepthHere
+                // 的说明）；在半透明混合模式下不写深度，避免竖起"看不见的深度墙"
+                // (PogoRoo ScoreCard 透明背景挡住袋鼠的旧 bug)。
 
                 int dstColor = surface.getPixel(x, y);
                 int composited = applyCompositing(dstColor, finalColor, compositingMode);
@@ -1757,7 +1637,16 @@ public class Graphics3D {
                 if (masked != dstColor) {
                     surface.setPixel(x, y, masked);
                 }
-                if (depthWrite && srcAlpha > 0) {
+                // 深度写入：
+                //  - REPLACE / 默认(compositingMode==null)：不透明渲染，对齐参考实现
+                //    (m3gApplyDefaultCompositingMode：glDepthMask(TRUE) + 默认关闭 alphaTest)，
+                //    即使纹素 alpha==0 也写深度——否则会留下"深度洞"，让后面的几何
+                //    (如另一辆卡车)错误地穿透画在本车前面(truckracer 车与车遮挡翻转的根因)。
+                //  - 半透明混合(ALPHA/ALPHA_ADD/MODULATE/MODULATE_X2)：完全透明(alpha==0)
+                //    的片元不贡献颜色，也不应写深度，否则会竖起一面"看不见的深度墙"
+                //    挡住后面画的几何(PogoRoo ScoreCard 透明背景挡住袋鼠的旧 bug)。
+                boolean writeDepthHere = depthWrite && (!translucentBlending || srcAlpha > 0);
+                if (writeDepthHere) {
                     depthBuffer[depthIndex] = depth;
                 }
             }
@@ -1869,81 +1758,6 @@ public class Graphics3D {
             }
         }
         return vertices.getDefaultColor();
-    }
-
-    /**
-     * DIAGNOSTIC: returns an opaque ARGB color (or 0 to skip tinting) chosen by
-     * vertex count, so the player can visually identify each object on screen.
-     * Enabled only when -Dfreej2me.diag.tint is set. A different color per vertex
-     * count so the parachute parts can be told apart from tower/plaza/buildings.
-     * <p>
-     * Legend (ARGB hex):
-     * 4 -> FF00FFFF cyan
-     * 16 -> FFFF0000 red
-     * 32 -> FF00FF00 lime
-     * 41 -> FFFF00FF magenta
-     * 57 -> FF0000FF blue      (tower layers)
-     * 89 -> FFFF8000 orange
-     * 90 -> FFC000C0 purple
-     * 100 -> FF00AA00 dark-green
-     * 150 -> FF000000 black
-     * 154 -> FF808080 grey
-     * 161 -> FF800000 dark-red
-     * 184 -> FF008080 teal
-     * 203 -> FFC0C000 olive
-     * 212 -> FF808000 olive-drab
-     * 299 -> FFFFFF00 yellow
-     * other -> FFFFFFFF white
-     */
-    private int pickTintColor(VertexBuffer vertices, CompositingMode compositingMode, Transform transform) {
-        int verts;
-        try {
-            verts = vertices.getVertexCount();
-        } catch (Throwable t) {
-            if (diagRenderEnabled())
-                System.out.println("[diag.tint] vertexCount FAILED");
-            return 0xFF8B4513;  // brown - error case
-        }
-        switch (verts) {
-            case 4:
-                return 0xFF00FFFF;
-            case 16:
-                return 0xFFFF0000;
-            case 32:
-                return 0xFF00FF00;
-            case 41:
-                return 0xFFFF00FF;
-            case 54:
-                return 0xFFFF00FF;  // magenta - parachute canopy
-            case 57:
-                return 0xFF0000FF;
-            case 89:
-                return 0xFFFF8000;
-            case 90:
-                return 0xFFC000C0;
-            case 100:
-                return 0xFF00AA00;
-            case 126:
-                return 0xFFFF1493;  // deep pink - parachute body
-            case 150:
-                return 0xFF000000;
-            case 154:
-                return 0xFF808080;
-            case 161:
-                return 0xFF800000;
-            case 184:
-                return 0xFF008080;
-            case 203:
-                return 0xFFC0C000;
-            case 212:
-                return 0xFF808000;
-            case 299:
-                return 0xFFFFFF00;
-            default:
-                if (diagRenderEnabled())
-                    System.out.println("[diag.tint] UNKNOWN verts=" + verts);
-                return 0xFFFFFFFF;  // white - unknown vertex count
-        }
     }
 
     private int getVertexColor(VertexArray colors, int index) {

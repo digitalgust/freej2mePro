@@ -27,16 +27,8 @@ package com.mascotcapsule.micro3d.v3.base;
 
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.recompile.mobile.PlatformGraphics;
 
@@ -46,111 +38,6 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
     private static final float CLIP_EPSILON = 1.0e-5f;
     private static final int CLIP_PLANE_NEAR = 0;
     private static final int CLIP_PLANE_FAR = 1;
-    // #region debug-point A:runtime-collector
-    private static final String DEBUG_ENV_PATH = ".dbg/micro3d-texture-noise.env";
-    private static volatile String debugServerUrl = "http://127.0.0.1:7777/event";
-    private static volatile String debugSessionId = "micro3d-texture-noise";
-    private static volatile boolean debugEnvLoaded;
-    // Master switch for the runtime debug collector. When false, all debugSend()
-    // calls become cheap no-ops (the hot path stays clean) so the game runs at full
-    // speed. Set true only when actively capturing evidence for a specific issue.
-    private static final boolean DEBUG_COLLECTOR_ENABLED = false;
-    private static final boolean DEBUG_TRIANGLE_LOGS_ENABLED = false;
-    private static final AtomicInteger DEBUG_FRAME_SEQ = new AtomicInteger();
-    private static final AtomicInteger DEBUG_ITEM_LOG_COUNT = new AtomicInteger();
-    private static final AtomicInteger DEBUG_TRI_LOG_COUNT = new AtomicInteger();
-
-    private static void debugLoadEnv() {
-        if (debugEnvLoaded) {
-            return;
-        }
-        synchronized (SoftwareMicro3dBackend.class) {
-            if (debugEnvLoaded) {
-                return;
-            }
-            try {
-                for (String line : Files.readAllLines(Paths.get(DEBUG_ENV_PATH), StandardCharsets.UTF_8)) {
-                    if (line.startsWith("DEBUG_SERVER_URL=")) {
-                        debugServerUrl = line.substring("DEBUG_SERVER_URL=".length()).trim();
-                    } else if (line.startsWith("DEBUG_SESSION_ID=")) {
-                        debugSessionId = line.substring("DEBUG_SESSION_ID=".length()).trim();
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
-            debugEnvLoaded = true;
-        }
-    }
-
-    private static String debugEscape(String s) {
-        if (s == null) {
-            return "";
-        }
-        StringBuilder out = new StringBuilder(s.length() + 16);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '\\':
-                    out.append("\\\\");
-                    break;
-                case '"':
-                    out.append("\\\"");
-                    break;
-                case '\n':
-                    out.append("\\n");
-                    break;
-                case '\r':
-                    out.append("\\r");
-                    break;
-                case '\t':
-                    out.append("\\t");
-                    break;
-                default:
-                    if (c < 0x20) out.append(' ');
-                    else out.append(c);
-            }
-        }
-        return out.toString();
-    }
-
-    private static void debugSend(String runId, String hypothesisId, String location, String msg, String dataJson) {
-        if (!DEBUG_COLLECTOR_ENABLED) {
-            return;
-        }
-        debugLoadEnv();
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(debugServerUrl);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setConnectTimeout(150);
-            conn.setReadTimeout(150);
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json");
-            String body = "{\"sessionId\":\"" + debugEscape(debugSessionId) + "\","
-                    + "\"runId\":\"" + debugEscape(runId) + "\","
-                    + "\"hypothesisId\":\"" + debugEscape(hypothesisId) + "\","
-                    + "\"location\":\"" + debugEscape(location) + "\","
-                    + "\"msg\":\"" + debugEscape(msg) + "\","
-                    + "\"data\":" + (dataJson == null ? "{}" : dataJson) + ","
-                    + "\"ts\":" + System.currentTimeMillis() + "}";
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            OutputStream os = conn.getOutputStream();
-            os.write(bytes);
-            os.flush();
-            os.close();
-            InputStream is = conn.getInputStream();
-            while (is.read() != -1) {
-            }
-            is.close();
-        } catch (Throwable ignored) {
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
-        }
-    }
-    // #endregion
 
     private javax.microedition.lcdui.Graphics boundGraphics;
     private Micro3dSurface surface;
@@ -225,26 +112,8 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
 
     @Override
     public void release(Object target) {
-        // Optional one-shot frame dump for debugging texture/UV issues. Enabled by
-        // -Dmicro3d.dumpframe=N (dump first N releases), writes PNGs next to the
-        // process cwd. Cheap: only triggers on release, not in the hot raster loop.
-        try {
-            String dmp = System.getProperty("micro3d.dumpframe");
-            if (dmp != null && surface != null) {
-                int limit = Integer.parseInt(dmp);
-                if (dumpCount > 1000 && dumpCount < 1000 + limit) {
-                    BufferedImage img = ((Micro3dSurface.BufferedImageSurface) surface).getImage();
-                    java.io.File out = new java.io.File("micro3d-frame-" + dumpCount + ".png");
-                    javax.imageio.ImageIO.write(img, "png", out);
-                }
-                    dumpCount++;
-            }
-        } catch (Throwable ignored) {
-        }
         boundGraphics = null;
     }
-
-    private static int dumpCount;
 
     private void clearDepth() {
         if (depthBuffer != null) {
@@ -258,21 +127,6 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         if (frame.items.isEmpty()) {
             return;
         }
-        int figureCount = 0;
-        int primitiveCount = 0;
-        for (FrameState.DrawItem item : frame.items) {
-            if (item instanceof FrameState.FigureItem) figureCount++;
-            else if (item instanceof FrameState.PrimitiveItem) primitiveCount++;
-        }
-        int frameSeq = DEBUG_FRAME_SEQ.incrementAndGet();
-        DEBUG_ITEM_LOG_COUNT.set(0);
-        DEBUG_TRI_LOG_COUNT.set(0);
-        // #region debug-point B:frame-summary
-        debugSend("post-fix", "B", "SoftwareMicro3dBackend.renderItems", "[DEBUG] frame-summary",
-                "{\"frameSeq\":" + frameSeq + ",\"items\":" + frame.items.size()
-                        + ",\"figures\":" + figureCount + ",\"primitives\":" + primitiveCount
-                        + ",\"clipW\":" + clip.width + ",\"clipH\":" + clip.height + "}");
-        // #endregion
         clearDepth();
         Micro3dRasterizer r = new Micro3dRasterizer(surface, clip, depthBuffer);
         // pass 0: opaque (depth write on), pass 1: translucent (depth write off)
@@ -303,14 +157,6 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         ByteBuffer texCoords = model.texCoordArray;
         ByteBuffer tc = texCoords.duplicate();
         int[][][] meshes = model.subMeshesLengthsT;
-        if (DEBUG_ITEM_LOG_COUNT.getAndIncrement() < 6) {
-            // #region debug-point B:figure-batch
-            debugSend("post-fix", "B", "SoftwareMicro3dBackend.renderFigure", "[DEBUG] figure-batch",
-                    "{\"pass\":" + pass + ",\"depthWrite\":" + depthWrite + ",\"textures\":" + item.textures.length
-                            + ",\"numVerticesPolyT\":" + model.numVerticesPolyT + ",\"hasPolyT\":" + model.hasPolyT
-                            + ",\"semiTrans\":" + (((item.attrs & Graphics3D.ENV_ATTR_SEMI_TRANSPARENT) != 0) ? "true" : "false") + "}");
-            // #endregion
-        }
         int length = meshes.length;
         int blendIndex = 0;
         int pos = 0;
@@ -382,8 +228,12 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
                                  float[] mvp, int pass, boolean depthWrite) {
         int command = item.command;
         int type = command & 0x7000000;
+        if (type == Graphics3D.PRIMITVE_POINT_SPRITES) {
+            renderPointSprites(r, item, pass, depthWrite);
+            return;
+        }
         if (type != Graphics3D.PRIMITVE_TRIANGLES && type != Graphics3D.PRIMITVE_QUADS) {
-            // points / lines / sprites: deferred
+            // points / lines: deferred
             return;
         }
         int blend = item.blendMode();
@@ -416,27 +266,40 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         // packed per-vertex RGB buffer. Only PER_COMMAND stays as a single 3-byte color.
         boolean expandedVertexColors = colors != null
                 && (command & Graphics3D.PDATA_COLOR_PER_COMMAND) != Graphics3D.PDATA_COLOR_PER_COMMAND;
-        if (DEBUG_ITEM_LOG_COUNT.getAndIncrement() < 14) {
-            int texW = texData != null ? texData.width : -1;
-            int texH = texData != null ? texData.height : -1;
-            // #region debug-point A:primitive-batch
-            debugSend("post-fix", "A", "SoftwareMicro3dBackend.renderPrimitive", "[DEBUG] primitive-batch",
-                    "{\"command\":" + command + ",\"type\":" + type + ",\"pass\":" + pass + ",\"depthWrite\":" + depthWrite
-                            + ",\"blend\":" + blend + ",\"rawBlendBits\":" + rawBlendBits
-                            + ",\"semiTrans\":" + (semiTrans ? "true" : "false") + ",\"vertexCount\":" + vertexCount
-                            + ",\"texCoordsCap\":" + (texCoords != null ? texCoords.capacity() : -1)
-                            + ",\"colorsCap\":" + (colors != null ? colors.capacity() : -1)
-                            + ",\"normalsCap\":" + (normals != null ? normals.capacity() : -1)
-                            + ",\"perVertexColor\":" + (expandedVertexColors ? "true" : "false")
-                            + ",\"colorMode\":" + (command & (Graphics3D.PDATA_COLOR_PER_COMMAND | Graphics3D.PDATA_COLOR_PER_FACE))
-                            + ",\"textured\":" + (texCoords != null ? "true" : "false")
-                            + ",\"colorKey\":" + (colorKey ? "true" : "false")
-                            + ",\"texW\":" + texW + ",\"texH\":" + texH + "}");
-            // #endregion
-        }
         for (int triBase = 0; triBase + 2 < vertexCount; triBase += 3) {
             drawPrimitiveTriangle(r, item, vertices, normals, texCoords, colors, triBase,
                     mvp, s, expandedVertexColors, depthWrite, command);
+        }
+    }
+
+    private void renderPointSprites(Micro3dRasterizer r, FrameState.PrimitiveItem item,
+                                    int pass, boolean depthWrite) {
+        TextureData texData = (item.texture != null) ? item.texture.image : null;
+        if (texData == null || item.vertices == null || item.texCoords == null) {
+            return;
+        }
+        int blend = item.blendMode();
+        boolean semiTrans = (item.attrs & Graphics3D.ENV_ATTR_SEMI_TRANSPARENT) != 0;
+        boolean drawThisPass = (blend == Micro3dRasterizer.BLEND_NORMAL) ? pass == 0 : pass == 1;
+        if (!drawThisPass) {
+            return;
+        }
+        Micro3dRasterizer.Shading s = makeShading(
+                texData,
+                null,
+                item,
+                false,
+                false,
+                blend,
+                (item.command & Graphics3D.PATTR_COLORKEY) != 0,
+                false,
+                false,
+                semiTrans);
+        FloatBuffer vertices = item.vertices;
+        ByteBuffer texCoords = item.texCoords;
+        int vertexCount = vertices.capacity() / 4;
+        for (int triBase = 0; triBase + 2 < vertexCount; triBase += 3) {
+            drawClipSpaceTriangle(r, vertices, texCoords, triBase, s, depthWrite);
         }
     }
 
@@ -445,13 +308,23 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
                                                   boolean enableLight, boolean toon,
                                                   int blend, boolean colorKey,
                                                   boolean cullBack, boolean cullFront) {
+        return makeShading(texture, sphere, item, enableLight, toon, blend, colorKey,
+                cullBack, cullFront, false);
+    }
+
+    private Micro3dRasterizer.Shading makeShading(TextureData texture, TextureData sphere,
+                                                  FrameState.DrawItem item,
+                                                  boolean enableLight, boolean toon,
+                                                  int blend, boolean colorKey,
+                                                  boolean cullBack, boolean cullFront,
+                                                  boolean useTextureAlpha) {
         return new Micro3dRasterizer.Shading(
                 texture, sphere, item.light, enableLight, toon,
                 item.toonThreshold, item.toonHigh, item.toonLow,
                 blend, colorKey,
                 false /*flatShading*/,
                 0 /*alphaThreshold*/,
-                cullBack, cullFront);
+                cullBack, cullFront, useTextureAlpha);
     }
 
     private void drawPrimitiveTriangle(Micro3dRasterizer r, FrameState.PrimitiveItem item,
@@ -506,20 +379,28 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
             }
             clipVertices[k] = v;
         }
-        if (DEBUG_TRIANGLE_LOGS_ENABLED && DEBUG_TRI_LOG_COUNT.getAndIncrement() < 24) {
-            int texW = item.texture != null ? item.texture.image.width : -1;
-            int texH = item.texture != null ? item.texture.image.height : -1;
-            // #region debug-point A:primitive-triangle
-            debugSend("post-fix", "A", "SoftwareMicro3dBackend.drawPrimitiveTriangle", "[DEBUG] primitive-triangle",
-                    "{\"triBase\":" + triBase + ",\"command\":" + command + ",\"depthWrite\":" + depthWrite
-                            + ",\"perVertexColor\":" + (expandedVertexColors ? "true" : "false")
-                            + ",\"u0\":" + clipVertices[0].u + ",\"v0\":" + clipVertices[0].v + ",\"u1\":" + clipVertices[1].u + ",\"v1\":" + clipVertices[1].v
-                            + ",\"u2\":" + clipVertices[2].u + ",\"v2\":" + clipVertices[2].v
-                            + ",\"cw0\":" + clipVertices[0].cw + ",\"cw1\":" + clipVertices[1].cw + ",\"cw2\":" + clipVertices[2].cw
-                            + ",\"r0\":" + clipVertices[0].r + ",\"g0\":" + clipVertices[0].g + ",\"b0\":" + clipVertices[0].b
-                            + ",\"texW\":" + texW + ",\"texH\":" + texH + ",\"colorKey\":" + (s.colorKey ? "true" : "false")
-                            + ",\"blend\":" + s.blendMode + "}");
-            // #endregion
+        rasterClippedTriangle(r, clipVertices, s, depthWrite);
+    }
+
+    private void drawClipSpaceTriangle(Micro3dRasterizer r,
+                                       FloatBuffer vertices, ByteBuffer texCoords,
+                                       int triBase, Micro3dRasterizer.Shading s, boolean depthWrite) {
+        ClipVertex[] clipVertices = new ClipVertex[3];
+        for (int k = 0; k < 3; k++) {
+            int vi = (triBase + k) * 4;
+            ClipVertex v = new ClipVertex();
+            v.cx = vertices.get(vi);
+            v.cy = vertices.get(vi + 1);
+            v.cz = vertices.get(vi + 2);
+            v.cw = vertices.get(vi + 3);
+            v.r = v.g = v.b = 255;
+            v.a = 255;
+            int ti = (triBase + k) * 2;
+            if (ti + 1 < texCoords.capacity()) {
+                v.u = texCoords.get(ti) & 0xFF;
+                v.v = texCoords.get(ti + 1) & 0xFF;
+            }
+            clipVertices[k] = v;
         }
         rasterClippedTriangle(r, clipVertices, s, depthWrite);
     }
