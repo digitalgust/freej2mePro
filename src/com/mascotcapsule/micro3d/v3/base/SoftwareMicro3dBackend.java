@@ -146,17 +146,26 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
     private void renderFigure(Micro3dRasterizer r, FrameState.FigureItem item,
                               float[] mvp, int pass, boolean depthWrite) {
         Model model = item.model;
-        if (!model.hasPolyT || item.textures == null || item.textures.length == 0) {
-            // TODO(phase 3): polyC (vertex-colored) figure path
+        if (!model.hasPolyT && !model.hasPolyC) {
             return;
         }
-        boolean semiTrans = (item.attrs & Graphics3D.ENV_ATTR_SEMI_TRANSPARENT) != 0;
         FloatBuffer vertices = item.vertices;
         FloatBuffer normals = item.normals;
         vertices.position(0);
         ByteBuffer texCoords = model.texCoordArray;
-        ByteBuffer tc = texCoords.duplicate();
-        int[][][] meshes = model.subMeshesLengthsT;
+        if (model.hasPolyT && item.textures != null && item.textures.length > 0) {
+            renderFigureTextured(r, item, vertices, normals, texCoords.duplicate(), pass, depthWrite);
+        }
+        if (model.hasPolyC) {
+            renderFigureColored(r, item, vertices, normals, texCoords.duplicate(), pass, depthWrite);
+        }
+    }
+
+    private void renderFigureTextured(Micro3dRasterizer r, FrameState.FigureItem item,
+                                      FloatBuffer vertices, FloatBuffer normals, ByteBuffer tc,
+                                      int pass, boolean depthWrite) {
+        boolean semiTrans = (item.attrs & Graphics3D.ENV_ATTR_SEMI_TRANSPARENT) != 0;
+        int[][][] meshes = item.model.subMeshesLengthsT;
         int length = meshes.length;
         int blendIndex = 0;
         int pos = 0;
@@ -197,6 +206,44 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         }
     }
 
+    private void renderFigureColored(Micro3dRasterizer r, FrameState.FigureItem item,
+                                     FloatBuffer vertices, FloatBuffer normals, ByteBuffer materialData,
+                                     int pass, boolean depthWrite) {
+        boolean semiTrans = (item.attrs & Graphics3D.ENV_ATTR_SEMI_TRANSPARENT) != 0;
+        int[][] meshes = item.model.subMeshesLengthsC;
+        int length = meshes.length;
+        int blendIndex = 0;
+        int pos = 0;
+        int startVertex = item.model.numVerticesPolyT;
+        if (semiTrans) {
+            if (pass == 0) {
+                length = 1;
+            } else {
+                int[] bucket = meshes[blendIndex++];
+                pos += bucket[0] + bucket[1];
+            }
+        } else if (pass == 1) {
+            return;
+        }
+        while (blendIndex < length) {
+            int[] bucket = meshes[blendIndex];
+            int blendMode = semiTrans && pass == 1 ? (blendIndex << 1) : Micro3dRasterizer.BLEND_NORMAL;
+            int cnt = bucket[0];
+            if (cnt > 0) {
+                drawFigureColorBucket(r, item, vertices, normals, materialData,
+                        startVertex + pos, cnt, mvp, blendMode, true);
+                pos += cnt;
+            }
+            cnt = bucket[1];
+            if (cnt > 0) {
+                drawFigureColorBucket(r, item, vertices, normals, materialData,
+                        startVertex + pos, cnt, mvp, blendMode, false);
+                pos += cnt;
+            }
+            blendIndex++;
+        }
+    }
+
     private void drawFigureBucket(Micro3dRasterizer r, FrameState.FigureItem item,
                                   FloatBuffer vertices, FloatBuffer normals, ByteBuffer texCoords,
                                   int start, int count, float[] mvp, TextureData texture,
@@ -224,10 +271,44 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         }
     }
 
+    private void drawFigureColorBucket(Micro3dRasterizer r, FrameState.FigureItem item,
+                                       FloatBuffer vertices, FloatBuffer normals, ByteBuffer materialData,
+                                       int start, int count, float[] mvp, int blendMode, boolean cullBack) {
+        boolean globalLight = (item.attrs & Graphics3D.ENV_ATTR_LIGHTING) != 0 && normals != null;
+        boolean toon = (item.attrs & Graphics3D.ENV_ATTR_TOON_SHADING) != 0;
+        TextureData sphereGlobal = (item.specular != null
+                && (item.attrs & Graphics3D.ENV_ATTR_SPHERE_MAP) != 0) ? item.specular.image : null;
+        for (int triBase = start; triBase + 2 < start + count; triBase += 3) {
+            int tcOff = triBase * 5;
+            boolean lightFlag = (materialData.get(tcOff + 3) & 0xFF) != 0;
+            boolean specularFlag = (materialData.get(tcOff + 4) & 0xFF) != 0;
+            Micro3dRasterizer.Shading s = makeShading(
+                    null,
+                    specularFlag ? sphereGlobal : null,
+                    item,
+                    globalLight && lightFlag,
+                    toon,
+                    blendMode,
+                    false,
+                    cullBack,
+                    false);
+            drawColorTriangle(r, vertices, normals, materialData, triBase, mvp, item.viewMatrix, s,
+                    blendMode == Micro3dRasterizer.BLEND_NORMAL);
+        }
+    }
+
     private void renderPrimitive(Micro3dRasterizer r, FrameState.PrimitiveItem item,
                                  float[] mvp, int pass, boolean depthWrite) {
         int command = item.command;
         int type = command & 0x7000000;
+        if (type == Graphics3D.PRIMITVE_POINTS) {
+            renderPoints(r, item, mvp, pass, depthWrite);
+            return;
+        }
+        if (type == Graphics3D.PRIMITVE_LINES) {
+            renderLines(r, item, mvp, pass, depthWrite);
+            return;
+        }
         if (type == Graphics3D.PRIMITVE_POINT_SPRITES) {
             renderPointSprites(r, item, pass, depthWrite);
             return;
@@ -269,6 +350,64 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         for (int triBase = 0; triBase + 2 < vertexCount; triBase += 3) {
             drawPrimitiveTriangle(r, item, vertices, normals, texCoords, colors, triBase,
                     mvp, s, expandedVertexColors, depthWrite, command);
+        }
+    }
+
+    private void renderPoints(Micro3dRasterizer r, FrameState.PrimitiveItem item,
+                              float[] mvp, int pass, boolean depthWrite) {
+        int blend = item.blendMode();
+        boolean drawThisPass = (blend == Micro3dRasterizer.BLEND_NORMAL) ? pass == 0 : pass == 1;
+        if (!drawThisPass || item.vertices == null || item.colors == null) {
+            return;
+        }
+        FloatBuffer vertices = item.vertices;
+        ByteBuffer colors = item.colors;
+        int vertexCount = vertices.capacity() / 3;
+        int command = item.command;
+        int perCommandColor = 0xFFFFFFFF;
+        boolean expandedVertexColors = (command & Graphics3D.PDATA_COLOR_PER_COMMAND)
+                != Graphics3D.PDATA_COLOR_PER_COMMAND;
+        if (!expandedVertexColors && colors.capacity() >= 3) {
+            perCommandColor = 0xFF000000 | ((colors.get(0) & 0xFF) << 16)
+                    | ((colors.get(1) & 0xFF) << 8) | (colors.get(2) & 0xFF);
+        }
+        for (int i = 0; i < vertexCount; i++) {
+            Micro3dRasterizer.Vertex v = projectPrimitiveVertex(vertices, mvp, i);
+            if (v == null) {
+                continue;
+            }
+            int color = expandedVertexColors ? vertexColor(colors, i) : perCommandColor;
+            r.rasterPoint(v, color, blend, true, depthWrite);
+        }
+    }
+
+    private void renderLines(Micro3dRasterizer r, FrameState.PrimitiveItem item,
+                             float[] mvp, int pass, boolean depthWrite) {
+        int blend = item.blendMode();
+        boolean drawThisPass = (blend == Micro3dRasterizer.BLEND_NORMAL) ? pass == 0 : pass == 1;
+        if (!drawThisPass || item.vertices == null || item.colors == null) {
+            return;
+        }
+        FloatBuffer vertices = item.vertices;
+        ByteBuffer colors = item.colors;
+        int vertexCount = vertices.capacity() / 3;
+        int command = item.command;
+        int perCommandColor = 0xFFFFFFFF;
+        boolean expandedVertexColors = (command & Graphics3D.PDATA_COLOR_PER_COMMAND)
+                != Graphics3D.PDATA_COLOR_PER_COMMAND;
+        if (!expandedVertexColors && colors.capacity() >= 3) {
+            perCommandColor = 0xFF000000 | ((colors.get(0) & 0xFF) << 16)
+                    | ((colors.get(1) & 0xFF) << 8) | (colors.get(2) & 0xFF);
+        }
+        for (int i = 0; i + 1 < vertexCount; i += 2) {
+            Micro3dRasterizer.Vertex v0 = projectPrimitiveVertex(vertices, mvp, i);
+            Micro3dRasterizer.Vertex v1 = projectPrimitiveVertex(vertices, mvp, i + 1);
+            if (v0 == null || v1 == null) {
+                continue;
+            }
+            int c0 = expandedVertexColors ? vertexColor(colors, i) : perCommandColor;
+            int c1 = expandedVertexColors ? vertexColor(colors, i + 1) : perCommandColor;
+            r.rasterLine(v0, v1, c0, c1, blend, true, depthWrite);
         }
     }
 
@@ -441,6 +580,42 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         rasterClippedTriangle(r, clipVertices, s, depthWrite);
     }
 
+    private void drawColorTriangle(Micro3dRasterizer r,
+                                   FloatBuffer vertices, FloatBuffer normals, ByteBuffer materialData,
+                                   int triBase, float[] mvp, float[] viewMatrix,
+                                   Micro3dRasterizer.Shading s, boolean depthWrite) {
+        ClipVertex[] clipVertices = new ClipVertex[3];
+        float[] cc = new float[4];
+        for (int k = 0; k < 3; k++) {
+            int vi = (triBase + k) * 3;
+            float x = vertices.get(vi);
+            float y = vertices.get(vi + 1);
+            float z = vertices.get(vi + 2);
+            Mat4.transformPoint(mvp, x, y, z, cc);
+            ClipVertex v = new ClipVertex();
+            v.cx = cc[0];
+            v.cy = cc[1];
+            v.cz = cc[2];
+            v.cw = cc[3];
+            int tcOff = (triBase + k) * 5;
+            v.r = materialData.get(tcOff) & 0xFF;
+            v.g = materialData.get(tcOff + 1) & 0xFF;
+            v.b = materialData.get(tcOff + 2) & 0xFF;
+            v.a = 255;
+            if (normals != null) {
+                int ni = (triBase + k) * 3;
+                v.nx = normals.get(ni);
+                v.ny = normals.get(ni + 1);
+                v.nz = normals.get(ni + 2);
+                if (s.enableLighting) {
+                    transformNormal(viewMatrix, v);
+                }
+            }
+            clipVertices[k] = v;
+        }
+        rasterClippedTriangle(r, clipVertices, s, depthWrite);
+    }
+
     private void rasterClippedTriangle(Micro3dRasterizer r, ClipVertex[] source,
                                        Micro3dRasterizer.Shading s, boolean depthWrite) {
         ClipVertex[] tmpA = new ClipVertex[8];
@@ -580,5 +755,27 @@ public class SoftwareMicro3dBackend implements Micro3dBackend {
         v.nz = cv.nz;
         v.visible = true;
         return true;
+    }
+
+    private Micro3dRasterizer.Vertex projectPrimitiveVertex(FloatBuffer vertices, float[] mvp, int vertexIndex) {
+        int vi = vertexIndex * 3;
+        float[] cc = new float[4];
+        Mat4.transformPoint(mvp, vertices.get(vi), vertices.get(vi + 1), vertices.get(vi + 2), cc);
+        ClipVertex cv = new ClipVertex();
+        cv.cx = cc[0];
+        cv.cy = cc[1];
+        cv.cz = cc[2];
+        cv.cw = cc[3];
+        Micro3dRasterizer.Vertex out = new Micro3dRasterizer.Vertex();
+        return projectToScreen(out, cv) ? out : null;
+    }
+
+    private static int vertexColor(ByteBuffer colors, int vertexIndex) {
+        int ci = vertexIndex * 3;
+        if (ci + 2 >= colors.capacity()) {
+            return 0xFFFFFFFF;
+        }
+        return 0xFF000000 | ((colors.get(ci) & 0xFF) << 16)
+                | ((colors.get(ci + 1) & 0xFF) << 8) | (colors.get(ci + 2) & 0xFF);
     }
 }

@@ -317,7 +317,8 @@ public class Engine {
 						ncBuf.put(normals[no++]);
 					}
 				}
-				if ((command & PDATA_TEXCOORD_MASK) == Graphics3D.PDATA_TEXURE_COORD) {
+				boolean hasTexCoords = (command & PDATA_TEXCOORD_MASK) == Graphics3D.PDATA_TEXURE_COORD;
+				if (hasTexCoords) {
 					if (env.getTexture() == null) {
 						return;
 					}
@@ -326,7 +327,8 @@ public class Engine {
 					for (int i = 0; i < tcLen; i++) {
 						tcBuf.put((byte) textureCoords[to++]);
 					}
-				} else if ((command & PDATA_COLOR_MASK) == Graphics3D.PDATA_COLOR_PER_COMMAND) {
+				}
+				if ((command & PDATA_COLOR_MASK) == Graphics3D.PDATA_COLOR_PER_COMMAND) {
 					colorBuf = BufferUtils.createByteBuffer(3);
 					int color = colors[co];
 					colorBuf.put((byte) (color >> 16 & 0xFF));
@@ -343,7 +345,7 @@ public class Engine {
 						colorBuf.put(r).put(g).put(b);
 						colorBuf.put(r).put(g).put(b);
 					}
-				} else {
+				} else if (!hasTexCoords) {
 					return;
 				}
 				break;
@@ -390,7 +392,8 @@ public class Engine {
 						ncBuf.put(normals[pos++]).put(normals[pos++]).put(normals[pos]);   // C
 					}
 				}
-				if ((command & PDATA_TEXCOORD_MASK) == Graphics3D.PDATA_TEXURE_COORD) {
+				boolean hasTexCoords = (command & PDATA_TEXCOORD_MASK) == Graphics3D.PDATA_TEXURE_COORD;
+				if (hasTexCoords) {
 					if (env.getTexture() == null) {
 						return;
 					}
@@ -407,7 +410,8 @@ public class Engine {
 						pos = offset + 2 * 2;
 						tcBuf.put((byte) textureCoords[pos++]).put((byte) textureCoords[pos]);   // C
 					}
-				} else if ((command & PDATA_COLOR_MASK) == Graphics3D.PDATA_COLOR_PER_COMMAND) {
+				}
+				if ((command & PDATA_COLOR_MASK) == Graphics3D.PDATA_COLOR_PER_COMMAND) {
 					colorBuf = BufferUtils.createByteBuffer(3);
 					int color = colors[co];
 					colorBuf.put((byte) (color >> 16 & 0xFF));
@@ -427,7 +431,7 @@ public class Engine {
 						colorBuf.put(r).put(g).put(b);
 						colorBuf.put(r).put(g).put(b);
 					}
-				} else {
+				} else if (!hasTexCoords) {
 					return;
 				}
 				break;

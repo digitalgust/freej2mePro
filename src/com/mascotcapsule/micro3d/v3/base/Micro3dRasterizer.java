@@ -31,6 +31,7 @@ public final class Micro3dRasterizer {
 	public static final int BLEND_HALF = 2;
 	public static final int BLEND_ADD = 4;
 	public static final int BLEND_SUB = 6;
+	private static final boolean LINEAR_FILTER = textureFilterEnabled();
 
 	private final Micro3dSurface surface;
 	private final Rectangle clip;
@@ -213,6 +214,38 @@ public final class Micro3dRasterizer {
 		}
 	}
 
+	public void rasterPoint(Vertex v, int color, int blendMode,
+							boolean depthTest, boolean depthWrite) {
+		if (!v.visible) {
+			return;
+		}
+		int x = Math.round(v.x);
+		int y = Math.round(v.y);
+		plotPixel(x, y, v.z, color, blendMode, depthTest, depthWrite);
+	}
+
+	public void rasterLine(Vertex v0, Vertex v1, int c0, int c1, int blendMode,
+						   boolean depthTest, boolean depthWrite) {
+		if (!v0.visible || !v1.visible) {
+			return;
+		}
+		float dx = v1.x - v0.x;
+		float dy = v1.y - v0.y;
+		int steps = Math.max(Math.abs(Math.round(dx)), Math.abs(Math.round(dy)));
+		if (steps <= 0) {
+			rasterPoint(v0, c0, blendMode, depthTest, depthWrite);
+			return;
+		}
+		for (int i = 0; i <= steps; i++) {
+			float t = i / (float) steps;
+			float x = v0.x + dx * t;
+			float y = v0.y + dy * t;
+			float z = v0.z + (v1.z - v0.z) * t;
+			int color = lerpColor(c0, c1, t);
+			plotPixel(Math.round(x), Math.round(y), z, color, blendMode, depthTest, depthWrite);
+		}
+	}
+
 	/** Per-triangle shading context (immutable snapshot). */
 	public static final class Shading {
 		public final TextureData texture;
@@ -321,6 +354,9 @@ public final class Micro3dRasterizer {
 		if (raster == null || tw <= 0 || th <= 0) {
 			return 0;
 		}
+		if (LINEAR_FILTER) {
+			return sampleTextureLinear(raster, tw, th, u, v);
+		}
 		int cap = raster.capacity();
 		int maxU = tw - 1;
 		int maxV = th - 1;
@@ -344,6 +380,26 @@ public final class Micro3dRasterizer {
 		int b = raster.get(p + 2) & 0xFF;
 		int a = raster.get(p + 3) & 0xFF;
 		return (a << 24) | (r << 16) | (g << 8) | b;
+	}
+
+	private static int sampleTextureLinear(ByteBuffer raster, int tw, int th, float u, float v) {
+		int maxU = tw - 1;
+		int maxV = th - 1;
+		if (u < 0f) u = 0f;
+		else if (u > maxU) u = maxU;
+		if (v < 0f) v = 0f;
+		else if (v > maxV) v = maxV;
+		int x0 = clamp((int) Math.floor(u), 0, maxU);
+		int y0 = clamp((int) Math.floor(v), 0, maxV);
+		int x1 = clamp(x0 + 1, 0, maxU);
+		int y1 = clamp(y0 + 1, 0, maxV);
+		float tx = u - x0;
+		float ty = v - y0;
+		int c00 = texelAt(raster, tw, th, x0, y0);
+		int c10 = texelAt(raster, tw, th, x1, y0);
+		int c01 = texelAt(raster, tw, th, x0, y1);
+		int c11 = texelAt(raster, tw, th, x1, y1);
+		return bilerpColor(c00, c10, c01, c11, tx, ty);
 	}
 
 	private static int modulate(int litColor, int texel) {
@@ -422,6 +478,91 @@ public final class Micro3dRasterizer {
 
 	private static int color(Vertex v) {
 		return (clamp((int) v.a) << 24) | (clamp((int) v.r) << 16) | (clamp((int) v.g) << 8) | clamp((int) v.b);
+	}
+
+	private void plotPixel(int x, int y, float depth, int color, int blendMode,
+						   boolean depthTest, boolean depthWrite) {
+		if (x < clip.x || x >= clip.x + clip.width || y < clip.y || y >= clip.y + clip.height) {
+			return;
+		}
+		if (x < 0 || x >= surfaceW || y < 0 || y >= surfaceH) {
+			return;
+		}
+		int depthIndex = y * surfaceW + x;
+		if (depthTest && depthBuffer != null
+				&& depthIndex >= 0 && depthIndex < depthBuffer.length
+				&& depth > depthBuffer[depthIndex]) {
+			return;
+		}
+		int srcAlpha = (color >>> 24) & 0xFF;
+		if (srcAlpha <= 0) {
+			return;
+		}
+		int dstColor = surface.getPixel(x, y);
+		int composited = applyBlend(dstColor, color, blendMode);
+		if (composited != dstColor) {
+			surface.setPixel(x, y, composited);
+		}
+		if (depthWrite && depthBuffer != null && depthIndex >= 0 && depthIndex < depthBuffer.length) {
+			depthBuffer[depthIndex] = depth;
+		}
+	}
+
+	private static int lerpColor(int c0, int c1, float t) {
+		int a0 = (c0 >>> 24) & 0xFF;
+		int r0 = (c0 >>> 16) & 0xFF;
+		int g0 = (c0 >>> 8) & 0xFF;
+		int b0 = c0 & 0xFF;
+		int a1 = (c1 >>> 24) & 0xFF;
+		int r1 = (c1 >>> 16) & 0xFF;
+		int g1 = (c1 >>> 8) & 0xFF;
+		int b1 = c1 & 0xFF;
+		int a = Math.round(a0 + (a1 - a0) * t);
+		int r = Math.round(r0 + (r1 - r0) * t);
+		int g = Math.round(g0 + (g1 - g0) * t);
+		int b = Math.round(b0 + (b1 - b0) * t);
+		return (clamp(a) << 24) | (clamp(r) << 16) | (clamp(g) << 8) | clamp(b);
+	}
+
+	private static int texelAt(ByteBuffer raster, int tw, int th, int x, int y) {
+		if (x < 0 || x >= tw || y < 0 || y >= th) {
+			return 0;
+		}
+		int p = (y * tw + x) * 4;
+		if (p < 0 || p + 3 >= raster.capacity()) {
+			return 0;
+		}
+		int r = raster.get(p) & 0xFF;
+		int g = raster.get(p + 1) & 0xFF;
+		int b = raster.get(p + 2) & 0xFF;
+		int a = raster.get(p + 3) & 0xFF;
+		return (a << 24) | (r << 16) | (g << 8) | b;
+	}
+
+	private static int bilerpColor(int c00, int c10, int c01, int c11, float tx, float ty) {
+		float w00 = (1f - tx) * (1f - ty);
+		float w10 = tx * (1f - ty);
+		float w01 = (1f - tx) * ty;
+		float w11 = tx * ty;
+		float a = ((c00 >>> 24) & 0xFF) * w00 + ((c10 >>> 24) & 0xFF) * w10
+				+ ((c01 >>> 24) & 0xFF) * w01 + ((c11 >>> 24) & 0xFF) * w11;
+		float r = ((c00 >>> 16) & 0xFF) * w00 + ((c10 >>> 16) & 0xFF) * w10
+				+ ((c01 >>> 16) & 0xFF) * w01 + ((c11 >>> 16) & 0xFF) * w11;
+		float g = ((c00 >>> 8) & 0xFF) * w00 + ((c10 >>> 8) & 0xFF) * w10
+				+ ((c01 >>> 8) & 0xFF) * w01 + ((c11 >>> 8) & 0xFF) * w11;
+		float b = (c00 & 0xFF) * w00 + (c10 & 0xFF) * w10
+				+ (c01 & 0xFF) * w01 + (c11 & 0xFF) * w11;
+		return toColor(r, g, b, a);
+	}
+
+	private static boolean textureFilterEnabled() {
+		String mode = System.getProperty("freej2me.micro3d.textureFilter", "").trim();
+		if (mode.length() == 0) {
+			mode = System.getProperty("mascotTextureFilter", "").trim();
+		}
+		return "linear".equalsIgnoreCase(mode)
+				|| "true".equalsIgnoreCase(mode)
+				|| "1".equals(mode);
 	}
 
 	private static int toColor(float r, float g, float b, float a) {
