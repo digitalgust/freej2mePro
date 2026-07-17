@@ -84,7 +84,11 @@ public class List extends Screen implements Choice {
     }
 
     public Image getImage(int elementNum) {
-        return ((ImageItem) (items.get(elementNum))).getImage();
+        Item item = items.get(elementNum);
+        if (item instanceof ImageItem) {
+            return ((ImageItem) item).getImage();
+        }
+        return null;
     }
 
     public int getSelectedFlags(boolean[] selectedArray_return) {
@@ -96,7 +100,7 @@ public class List extends Screen implements Choice {
     }
 
     public String getString(int elementNum) {
-        return ((StringItem) (items.get(elementNum))).getString();
+        return items.get(elementNum).getString();
     }
 
     public void insert(int elementNum, String stringPart, Image imagePart) {

@@ -68,6 +68,15 @@ public class ImageItem extends Item {
         return layout;
     }
 
+    @Override
+    protected String getString() {
+        if (altText != null) {
+            return altText;
+        }
+        String lbl = getLabel();
+        return lbl != null ? lbl : "";
+    }
+
     public void setAltText(String text) {
         altText = text;
     }
