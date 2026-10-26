@@ -298,9 +298,18 @@ public class PlatformGraphics extends javax.microedition.lcdui.Graphics implemen
             if (anchor == 0) {
                 anchor = javax.microedition.lcdui.Graphics.TOP | javax.microedition.lcdui.Graphics.LEFT;
             }
-            x = AnchorX(x, gc.getFontMetrics().stringWidth(str), anchor);
-            y = y + gc.getFontMetrics().getAscent() - 1;
-            y = AnchorY(y, gc.getFontMetrics().getHeight(), anchor);
+            java.awt.FontMetrics fm = gc.getFontMetrics();
+            x = AnchorX(x, fm.stringWidth(str), anchor);
+            // normalize the vertical anchor to a baseline y, as expected by java.awt Graphics.drawString
+            if ((anchor & javax.microedition.lcdui.Graphics.BOTTOM) > 0) {
+                y = y - fm.getDescent();
+            } else if ((anchor & javax.microedition.lcdui.Graphics.BASELINE) > 0) {
+                // y already is the baseline
+            } else if ((anchor & javax.microedition.lcdui.Graphics.VCENTER) > 0) {
+                y = y + fm.getAscent() - fm.getHeight() / 2;
+            } else { // TOP
+                y = y + fm.getAscent();
+            }
             try {
                 gc.drawString(str, x, y);
             } catch (Exception e) {

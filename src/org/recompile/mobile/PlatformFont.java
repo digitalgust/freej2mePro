@@ -56,4 +56,9 @@ public class PlatformFont
 	{
 		return gc.getFontMetrics().stringWidth(str);
 	}
+
+	// MIDP Font metrics must match what the renderer actually draws
+	public int getHeight() { return gc.getFontMetrics().getHeight(); }
+
+	public int getBaselinePosition() { return gc.getFontMetrics().getAscent(); }
 }

@@ -66,7 +66,7 @@ public final class Font
 
 	public int charWidth(char ch) { return stringWidth(String.valueOf(ch)); }
 
-	public int getBaselinePosition() { return convertSize(size); }
+	public int getBaselinePosition() { return platformFont.getBaselinePosition(); }
 
 	public static Font getDefaultFont() { return defaultFont; }
 
@@ -76,7 +76,7 @@ public final class Font
 
 	public static Font getFont(int face, int style, int size) { return new Font(face, style, size); }
 
-	public int getHeight() { return convertSize(size); }
+	public int getHeight() { return platformFont.getHeight(); }
 
 	public int getSize() { return size; }
 
