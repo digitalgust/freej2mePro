@@ -25,6 +25,7 @@ import java.io.ByteArrayInputStream;
 
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLDecoder;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -50,6 +51,8 @@ public class MIDletLoader extends URLClassLoader {
 
     public String suitename;
 
+    public String jarname;
+
     private Class<?> mainClass;
     private MIDlet mainMidlet;
 
@@ -60,6 +63,7 @@ public class MIDletLoader extends URLClassLoader {
 
     public MIDletLoader(URL urls[]) {
         super(urls);
+        jarname = getJarName(urls);
         bytecodeInjectionTool = BytecodeInjectionTool.load(urls);
 
         try {
@@ -85,6 +89,29 @@ public class MIDletLoader extends URLClassLoader {
             return;
         }
 
+    }
+
+    private String getJarName(URL urls[]) {
+        try {
+            if (urls != null && urls.length > 0 && urls[0] != null) {
+                String path = urls[0].getPath();
+                if (path == null || path.length() == 0) {
+                    path = urls[0].getFile();
+                }
+                path = URLDecoder.decode(path.replace("+", "%2B"), "UTF-8").replace('\\', '/');
+                int separator = path.lastIndexOf('/');
+                String filename = separator >= 0 ? path.substring(separator + 1) : path;
+                if (filename.startsWith("\"") && filename.endsWith("\"") && filename.length() > 1) {
+                    filename = filename.substring(1, filename.length() - 1);
+                }
+                if (filename.length() > 0) {
+                    return filename;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("Can't Determine Jar Name!");
+        }
+        return "unknown.jar";
     }
 
     public synchronized void start(Mobile mobile) throws MIDletStateChangeException {

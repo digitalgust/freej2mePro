@@ -40,7 +40,7 @@ public class RecordStore
 
 	private String appname;
 
-	private static String rmsPath;
+	private String rmsPath;
 
 	private String rmsFile;
 
@@ -71,7 +71,7 @@ public class RecordStore
 
 		name = recordStoreName;
 
-		appname = FreeJ2ME.getMobile().getPlatform().loader.suitename;
+		appname = getRmsAppName();
 
 		rmsPath = FreeJ2ME.getMobile().getPlatform().dataPath + "./rms/"+appname;
 		rmsFile = FreeJ2ME.getMobile().getPlatform().dataPath + "./rms/"+appname+"/"+recordStoreName;
@@ -250,7 +250,7 @@ public class RecordStore
 	{
 		try
 		{
-			File fstore = new File(FreeJ2ME.getMobile().getPlatform().dataPath + "./rms/"+FreeJ2ME.getMobile().getPlatform().loader.suitename+"/"+recordStoreName);
+			File fstore = new File(FreeJ2ME.getMobile().getPlatform().dataPath + "./rms/"+getRmsAppName()+"/"+recordStoreName);
 			fstore.delete();
 		}
 		catch (Exception e)
@@ -351,32 +351,34 @@ public class RecordStore
 	public static String[] listRecordStores()
 	{
 		//System.out.println("List Record Stores");
-		if(rmsPath==null)
-		{
-			rmsPath = FreeJ2ME.getMobile().getPlatform().dataPath + "./rms/"+FreeJ2ME.getMobile().getPlatform().loader.name;
-			try
-			{
-				Files.createDirectories(Paths.get(rmsPath));
-			}
-			catch (Exception e) { }
-		}
+		String currentRmsPath = FreeJ2ME.getMobile().getPlatform().dataPath + "./rms/"+getRmsAppName();
 		try
 		{
-			File folder = new File(rmsPath);
+			Files.createDirectories(Paths.get(currentRmsPath));
+		}
+		catch (Exception e) { }
+		try
+		{
+			File folder = new File(currentRmsPath);
 			File[] files = folder.listFiles();
 
 			String[] out = new String[files.length];
 
 			for(int i=0; i<files.length; i++)
 			{
-				//System.out.println((files[i].toString()).substring(rmsPath.length()+1));
-				out[i] = (files[i].toString()).substring(rmsPath.length()+1);
+				//System.out.println((files[i].toString()).substring(currentRmsPath.length()+1));
+				out[i] = (files[i].toString()).substring(currentRmsPath.length()+1);
 			}
 
 			return out;
 		}
 		catch (Exception e) { }
 		return null;
+	}
+
+	private static String getRmsAppName()
+	{
+		return FreeJ2ME.getMobile().getPlatform().loader.jarname + "_" + FreeJ2ME.getMobile().getPlatform().loader.suitename;
 	}
 
 	public static RecordStore openRecordStore(String recordStoreName, boolean createIfNecessary) throws RecordStoreException, RecordStoreNotFoundException

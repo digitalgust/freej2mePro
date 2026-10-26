@@ -433,17 +433,17 @@ public class Libretro extends J2meSandBox
 			case 276: return Mobile.KEY_NUM4;
 			case 275: return Mobile.KEY_NUM6;
 
-			// Inverted Numpad
+			// Numpad
 			case 256: return Mobile.KEY_NUM0;
-			case 257: return Mobile.KEY_NUM7;
-			case 258: return Mobile.KEY_NUM8;
-			case 259: return Mobile.KEY_NUM9;
+			case 257: return Mobile.KEY_NUM1;
+			case 258: return Mobile.KEY_NUM2;
+			case 259: return Mobile.KEY_NUM3;
 			case 260: return Mobile.KEY_NUM4;
 			case 261: return Mobile.KEY_NUM5;
 			case 262: return Mobile.KEY_NUM6;
-			case 263: return Mobile.KEY_NUM1;
-			case 264: return Mobile.KEY_NUM2;
-			case 265: return Mobile.KEY_NUM3;
+			case 263: return Mobile.KEY_NUM7;
+			case 264: return Mobile.KEY_NUM8;
+			case 265: return Mobile.KEY_NUM9;
 
 			// Enter
 			case 13: return Mobile.KEY_NUM5;

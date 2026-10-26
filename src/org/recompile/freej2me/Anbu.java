@@ -255,13 +255,13 @@ public class Anbu extends J2meSandBox {
                     return Mobile.KEY_POUND;
 
 
-                // Inverted Num Pad
+                // Num Pad
                 case 0x40000059:
-                    return Mobile.KEY_NUM7; // SDLK_KP_1
+                    return Mobile.KEY_NUM1; // SDLK_KP_1
                 case 0x4000005A:
-                    return Mobile.KEY_NUM8; // SDLK_KP_2
+                    return Mobile.KEY_NUM2; // SDLK_KP_2
                 case 0x4000005B:
-                    return Mobile.KEY_NUM9; // SDLK_KP_3
+                    return Mobile.KEY_NUM3; // SDLK_KP_3
                 case 0x4000005C:
                     return Mobile.KEY_NUM4; // SDLK_KP_4
                 case 0x4000005D:
@@ -269,11 +269,11 @@ public class Anbu extends J2meSandBox {
                 case 0x4000005E:
                     return Mobile.KEY_NUM6; // SDLK_KP_6
                 case 0x4000005F:
-                    return Mobile.KEY_NUM1; // SDLK_KP_7
+                    return Mobile.KEY_NUM7; // SDLK_KP_7
                 case 0x40000060:
-                    return Mobile.KEY_NUM2; // SDLK_KP_8
+                    return Mobile.KEY_NUM8; // SDLK_KP_8
                 case 0x40000061:
-                    return Mobile.KEY_NUM3; // SDLK_KP_9
+                    return Mobile.KEY_NUM9; // SDLK_KP_9
                 case 0x40000062:
                     return Mobile.KEY_NUM0; // SDLK_KP_0
 

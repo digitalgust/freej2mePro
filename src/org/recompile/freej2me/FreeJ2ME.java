@@ -648,11 +648,11 @@ public class FreeJ2ME extends J2meSandBox {
 
             case KeyEvent.VK_NUMPAD0:
                 return Mobile.KEY_NUM0;
-            case KeyEvent.VK_NUMPAD7:
+            case KeyEvent.VK_NUMPAD1:
                 return Mobile.KEY_NUM1;
-            case KeyEvent.VK_NUMPAD8:
+            case KeyEvent.VK_NUMPAD2:
                 return Mobile.KEY_NUM2;
-            case KeyEvent.VK_NUMPAD9:
+            case KeyEvent.VK_NUMPAD3:
                 return Mobile.KEY_NUM3;
             case KeyEvent.VK_NUMPAD4:
                 return Mobile.KEY_NUM4;
@@ -660,11 +660,11 @@ public class FreeJ2ME extends J2meSandBox {
                 return Mobile.KEY_NUM5;
             case KeyEvent.VK_NUMPAD6:
                 return Mobile.KEY_NUM6;
-            case KeyEvent.VK_NUMPAD1:
+            case KeyEvent.VK_NUMPAD7:
                 return Mobile.KEY_NUM7;
-            case KeyEvent.VK_NUMPAD2:
+            case KeyEvent.VK_NUMPAD8:
                 return Mobile.KEY_NUM8;
-            case KeyEvent.VK_NUMPAD3:
+            case KeyEvent.VK_NUMPAD9:
                 return Mobile.KEY_NUM9;
 
             case KeyEvent.VK_UP:
