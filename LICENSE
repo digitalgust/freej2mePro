@@ -1,3 +1,6 @@
+See META-INF/NOTICE for the miniJVM replacements and the Oracle-derived
+networking files, with their applicable license texts in META-INF.
+
 FreeJ2ME depends on ObjectWeb ASM for some functionality.  ObjectWeb ASM is not
 coverd by the GNU General Public License Version 3, nor does it provide you
 the same rights.

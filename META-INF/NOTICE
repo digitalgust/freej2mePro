@@ -1,0 +1,25 @@
+FreeJ2ME licensing
+
+The FreeJ2ME source is distributed under GPL-3.0-or-later as stated in
+its source notices. See LICENSE for the GPLv3 and ObjectWeb ASM texts.
+Other components retain the terms stated in their own source notices.
+
+The replacements in com/sun/cldc/io/ConnectionBaseInterface.java and
+the MIT-marked files in javax/microedition/io are from miniJVM's
+licensing remediation (digitalgust/miniJVM commit
+11db4227b8f39b461e8033ac813b6a4d4198b654), with FreeJ2ME compatibility
+adjustments. See MIT-miniJVM.txt.
+https://github.com/digitalgust/miniJVM/commit/11db4227b8f39b461e8033ac813b6a4d4198b654
+
+The following Oracle-derived files retain GPL-2.0-only WITH
+Classpath-exception-2.0, as stated in their source headers:
+
+  org/mini/net/http/Properties.java
+  org/mini/net/http/Protocol.java
+  org/mini/net/http/StreamConnectionElement.java
+  org/mini/net/http/StreamConnectionPool.java
+  org/mini/net/serversocket/Protocol.java
+  org/mini/net/socket/Protocol.java
+
+See GPL-2.0.txt and CLASSPATH_EXCEPTION for the license and exception
+for these files.

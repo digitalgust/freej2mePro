@@ -34,6 +34,7 @@
 		basedir="build/classes">
 		<fileset dir="resources" />
 		<metainf dir="META-INF" />
+		<zipfileset file="LICENSE" prefix="META-INF" />
 		<manifest>
 			<!-- AWT Version -->
 			<attribute name="Main-Class" value="org.recompile.freej2me.FreeJ2ME"/>
@@ -47,6 +48,7 @@
 		basedir="build/classes">
 		<fileset dir="resources" />
 		<metainf dir="META-INF" />
+		<zipfileset file="LICENSE" prefix="META-INF" />
 		<manifest>
 			<!-- Libretro Version -->
 			<attribute name="Main-Class" value="org.recompile.freej2me.Libretro"/>
@@ -60,6 +62,7 @@
 		basedir="build/classes">
 		<fileset dir="resources" />
 		<metainf dir="META-INF" />
+		<zipfileset file="LICENSE" prefix="META-INF" />
 		<manifest>
 			<!-- Libretro Version -->
 			<attribute name="Main-Class" value="org.recompile.freej2me.Anbu"/>
