@@ -37,8 +37,9 @@ import java.awt.image.BufferedImage;
 
 public class MobilePlatform {
 
-    private PlatformImage lcd;
+    private volatile PlatformImage lcd;
     private PlatformGraphics gc;
+    private final Object lcdFrameLock = new Object();
     public int lcdWidth;
     public int lcdHeight;
 
@@ -72,15 +73,23 @@ public class MobilePlatform {
     }
 
     public void resizeLCD(int width, int height) {
-        lcdWidth = width;
-        lcdHeight = height;
-
-        lcd = new PlatformImage(width, height);
-        gc = lcd.getGraphics();
+        PlatformImage newLCD = new PlatformImage(width, height);
+        synchronized (lcdFrameLock) {
+            lcdWidth = width;
+            lcdHeight = height;
+            gc = newLCD.getGraphics();
+            lcd = newLCD;
+        }
     }
 
     public BufferedImage getLCD() {
         return lcd.getCanvas();
+    }
+
+    public void drawLCD(Graphics graphics, int x, int y, int width, int height) {
+        synchronized (lcdFrameLock) {
+            graphics.drawImage(lcd.getCanvas(), x, y, width, height, null);
+        }
     }
 
     public void setPainter(Runnable r) {
@@ -209,7 +218,9 @@ public class MobilePlatform {
 //	}
 
     public void flushGraphics(Image img, int x, int y, int width, int height) {
-        gc.flushGraphics(img, x, y, width, height);
+        synchronized (lcdFrameLock) {
+            gc.flushGraphics(img, x, y, width, height);
+        }
         painter.run();//画到窗口画布上
         //System.gc();
     }

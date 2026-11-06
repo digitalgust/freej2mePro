@@ -156,7 +156,14 @@ public class FreeJ2ME extends J2meSandBox {
 
         mobile.getPlatform().setPainter(new Runnable() {
             public void run() {
-                lcd.paint(lcd.getGraphics());
+                lcd.repaint();
+                if (!config.isRunning && limitFPS > 0) {
+                    try {
+                        Thread.sleep(limitFPS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
             }
         });
 
@@ -747,9 +754,14 @@ public class FreeJ2ME extends J2meSandBox {
             scaley = (double) lcdHeight / (double) vh;
         }
 
+        @Override
+        public void update(Graphics g) {
+            // Every LCD paint covers the viewport. Avoid AWT clearing it first.
+            paint(g);
+        }
+
         public void paint(Graphics g) {
             try {
-                Graphics2D cgc = (Graphics2D) this.getGraphics();
                 if (config.isRunning) {
                     if (!rotateDisplay) {
                         g.drawImage(config.getLCD(), cx, cy, cw, ch, null);
@@ -759,16 +771,17 @@ public class FreeJ2ME extends J2meSandBox {
                     }
                 } else {
                     if (!rotateDisplay) {
-                        g.drawImage(mobile.getPlatform().getLCD(), cx, cy, cw, ch, null);
+                        mobile.getPlatform().drawLCD(g, cx, cy, cw, ch);
                     } else {
                         // Rotate the FB 90 degrees counterclockwise with an adjusted pivot
-                        cgc.rotate(Math.toRadians(-90), ch / 2, ch / 2);
-                        // Draw the rotated FB with adjusted cy and cx values
-                        cgc.drawImage(mobile.getPlatform().getLCD(), 0, cx, ch, cw, null);
-                    }
-
-                    if (limitFPS > 0) {
-                        Thread.sleep(limitFPS);
+                        Graphics2D cgc = (Graphics2D) g;
+                        double angle = Math.toRadians(-90);
+                        cgc.rotate(angle, ch / 2, ch / 2);
+                        try {
+                            mobile.getPlatform().drawLCD(cgc, 0, cx, ch, cw);
+                        } finally {
+                            cgc.rotate(-angle, ch / 2, ch / 2);
+                        }
                     }
                 }
             } catch (Exception e) {

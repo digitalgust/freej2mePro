@@ -53,6 +53,7 @@ public abstract class Canvas extends Displayable {
     private boolean repaintInProgress = false;
     private long repaintSerial = 0L;
     private long completedRepaintSerial = 0L;
+    private static final long SERVICE_REPAINT_TIMEOUT_NS = 50_000_000L;
 
     protected Canvas() {
         width = FreeJ2ME.getMobile().getPlatform().lcdWidth;
@@ -250,7 +251,9 @@ public abstract class Canvas extends Displayable {
     }
 
     public void serviceRepaints() {
-        J2meSandBox sandBox = FreeJ2ME.getMobile().getJ2meSandBox();
+        Mobile mobile = FreeJ2ME.getMobile();
+        if (mobile.getDisplay().getCurrent() != this) return;
+        J2meSandBox sandBox = mobile.getJ2meSandBox();
         if (sandBox.isEventThread()) {
             drainPendingRepaint();
             return;
@@ -263,10 +266,15 @@ public abstract class Canvas extends Displayable {
             waitSerial = repaintSerial;
         }
         sandBox.requestRepaint();
+        long deadline = System.nanoTime() + SERVICE_REPAINT_TIMEOUT_NS;
         synchronized (repaintLock) {
-            while (completedRepaintSerial < waitSerial) {
+            while (completedRepaintSerial < waitSerial && mobile.getDisplay().getCurrent() == this) {
+                // A MIDlet may hold a lock needed by paint(). Leave the frame queued
+                // if it cannot complete promptly instead of waiting indefinitely.
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) return;
                 try {
-                    repaintLock.wait();
+                    repaintLock.wait((remaining + 999_999L) / 1_000_000L);
                 } catch (InterruptedException interruptedException) {
                     Thread.currentThread().interrupt();
                     return;
@@ -299,7 +307,9 @@ public abstract class Canvas extends Displayable {
                 graphics = platformImage.getGraphics();
                 graphics.reset();
                 paint(graphics);
-                FreeJ2ME.getMobile().getPlatform().flushGraphics(platformImage, clipX, clipY, clipWidth, clipHeight);
+                if (FreeJ2ME.getMobile().getDisplay().getCurrent() == this) {
+                    FreeJ2ME.getMobile().getPlatform().flushGraphics(platformImage, clipX, clipY, clipWidth, clipHeight);
+                }
             }
         } catch (Exception e) {
             System.out.print("Canvas repaint(): " + e.getMessage());

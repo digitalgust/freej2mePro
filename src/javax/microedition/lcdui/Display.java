@@ -41,9 +41,7 @@ public class Display {
     public static final int COLOR_HIGHLIGHTED_BORDER = 5;
 
 
-    private Displayable current;
-
-    private static Display display;
+    private volatile Displayable current;
 
     public Vector<Runnable> serialCalls;
 
@@ -52,8 +50,6 @@ public class Display {
     private SerialCallTimerTask timertask;
 
     public Display() {
-        display = this;
-
         FreeJ2ME.getMobile().setDisplay(this);
 
         serialCalls = new Vector<Runnable>(16);
@@ -125,7 +121,7 @@ public class Display {
     }
 
     public static Display getDisplay(MIDlet m) {
-        return display;
+        return m.getDisplay();
     }
 
     public boolean isColor() {
@@ -143,11 +139,13 @@ public class Display {
     public void setCurrent(Displayable next) {
         try {
             if (next == null) return;
-            next.showNotify();
-            current = next;
-            current.notifySetCurrent();
-            FreeJ2ME.getMobile().getPlatform().flushGraphics(current.platformImage, 0, 0, current.width, current.height);
-            //System.out.println("Set Current "+current.width+", "+current.height);
+            if (current != next) {
+                current = next;
+                next.showNotify();
+            }
+            // Canvas queues a paint. Other displayables submit from render().
+            // Copying the Canvas buffer here can race with the queued paint.
+            if (current == next) next.notifySetCurrent();
         } catch (Exception e) {
             System.out.println("Problem with setCurrent(next)");
             e.printStackTrace();
