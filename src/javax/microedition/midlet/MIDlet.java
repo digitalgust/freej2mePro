@@ -27,6 +27,7 @@ public abstract class MIDlet {
     public static HashMap<String, String> properties;
 
     private Display display = new Display();
+    private boolean destroyed;
 
     protected MIDlet() {
         System.out.println("Create MIDlet");
@@ -50,18 +51,29 @@ public abstract class MIDlet {
     }
 
     public final void notifyDestroyed() {
+        synchronized (this) {
+            if (destroyed) {
+                return;
+            }
+            destroyed = true;
+        }
         System.out.println("MIDlet sent Destroyed Notification");
         //System.exit(0);
         FreeJ2ME.getMobile().notifyDestroy();
-        ThreadGroup tg = Thread.currentThread().getThreadGroup();
+        Thread currentThread = Thread.currentThread();
+        ThreadGroup tg = currentThread.getThreadGroup();
         int active = tg.activeCount();
         Thread[] threads = new Thread[active];
-        tg.enumerate(threads);
-        for (Thread t : threads) {
-            if (t == Thread.currentThread()) continue; // skip current thread
+        int count = tg.enumerate(threads);
+        for (int i = 0; i < count; i++) {
+            Thread t = threads[i];
+            if (t == null || t == currentThread) continue;
             System.out.println("Thread interrupted " + t);
             t.stop();//minijvm do it safe
         }
+        // notifyDestroyed may run inside a repeating TimerTask. Stop this
+        // caller last so its TimerThread cannot survive its own shutdown.
+        currentThread.stop();//minijvm do it safe
     }
 
     public final void notifyPaused() {
