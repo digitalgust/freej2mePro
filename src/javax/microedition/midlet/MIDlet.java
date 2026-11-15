@@ -18,6 +18,7 @@ package javax.microedition.midlet;
 
 import org.recompile.freej2me.FreeJ2ME;
 
+import java.lang.reflect.Method;
 import java.util.HashMap;
 
 import javax.microedition.lcdui.*;
@@ -58,6 +59,7 @@ public abstract class MIDlet {
             destroyed = true;
         }
         System.out.println("MIDlet sent Destroyed Notification");
+        shutdownPlatformMidi();
         //System.exit(0);
         FreeJ2ME.getMobile().notifyDestroy();
         Thread currentThread = Thread.currentThread();
@@ -74,6 +76,16 @@ public abstract class MIDlet {
         // notifyDestroyed may run inside a repeating TimerTask. Stop this
         // caller last so its TimerThread cannot survive its own shutdown.
         currentThread.stop();//minijvm do it safe
+    }
+
+    private static void shutdownPlatformMidi() {
+        try {
+            Class<?> midiSystem = Class.forName("javax.sound.midi.MidiSystem");
+            Method shutdown = midiSystem.getMethod("shutdownCurrentMidlet");
+            shutdown.invoke(null);
+        } catch (Throwable ignored) {
+            // Standard Java SE MidiSystem has no MIDlet-scoped shutdown hook.
+        }
     }
 
     public final void notifyPaused() {

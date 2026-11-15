@@ -29,6 +29,7 @@ import java.io.FilenameFilter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import javax.imageio.ImageIO;
 import javax.microedition.lcdui.Display;
@@ -72,25 +73,213 @@ public class FreeJ2ME extends J2meSandBox {
      * mobile 对象是MIDlet和其他j2me对象之间的桥梁
      */
     static Map<ThreadGroup, Mobile> threadgroup2mobile = Collections.synchronizedMap(new HashMap<>());
+    private static final List<FreeJ2ME> activeInstances = Collections.synchronizedList(new ArrayList<FreeJ2ME>());
 
     String[] args;
 
     final java.util.List<Runnable> proxyAwtEvents = Collections.synchronizedList(new ArrayList<>());
 
-    boolean exit = false;
-    private Thread eventThread;
+    volatile boolean exit = false;
+    private volatile Thread eventThread;
+    private ThreadGroup sandboxThreadGroup;
+    private volatile boolean shutdownRequested;
+    private volatile boolean focusRequested;
+    private boolean threadGroupCleanupStarted;
+    private final String jarIdentity;
 
     public FreeJ2ME(String args[]) {
         this.args = args;
+        this.jarIdentity = getJarIdentity(args);
         ThreadGroup tg = new ThreadGroup("threadgroup-" + this);
+        sandboxThreadGroup = tg;
+        activeInstances.add(this);
         Thread t = new Thread(tg, () -> {//这个线程相当于是一个沙盒，和外部代码隔离，这样就可以同时运行多个freej2me实例
-            eventThread = Thread.currentThread();
-            openMidlet();
-            System.out.println("midlet loaded");
-
-            processEvent();
+            try {
+                openMidlet();
+                System.out.println("midlet loaded");
+                processEvent();
+            } finally {
+                cleanupAfterSandboxThreadsStop(tg);
+            }
         }, "thread-eventproxy-" + this);
+        eventThread = t;
         t.start();
+    }
+
+    /** Focus an already running copy of this MIDlet, or create a new instance. */
+    public static boolean openOrFocus(String[] args) {
+        String jarIdentity = getJarIdentity(args);
+        FreeJ2ME existing = null;
+        synchronized (activeInstances) {
+            for (int i = 0; i < activeInstances.size(); i++) {
+                FreeJ2ME instance = activeInstances.get(i);
+                if (!instance.exit && !instance.shutdownRequested
+                        && jarIdentity.equals(instance.jarIdentity)) {
+                    existing = instance;
+                    break;
+                }
+            }
+            if (existing == null) {
+                new FreeJ2ME(args);
+                return false;
+            }
+        }
+        existing.bringToFront();
+        return true;
+    }
+
+    private static String getJarIdentity(String[] args) {
+        if (args == null || args.length == 0 || args[0] == null) return "";
+        String identity = args[0].trim().replace('\\', '/');
+        if (identity.regionMatches(true, 0, "file:", 0, 5)) {
+            identity = identity.substring(5);
+        }
+        // miniJVM's String API does not include toLowerCase(Locale).
+        String osName = System.getProperty("os.name", "");
+        if (osName.toLowerCase().contains("windows")) {
+            identity = identity.toLowerCase();
+        }
+        return identity;
+    }
+
+    private void bringToFront() {
+        Frame frame = j2meframe;
+        if (frame == null) {
+            focusRequested = true;
+            return;
+        }
+        frame.setVisible(true);
+        frame.requestFocus();
+    }
+
+    /**
+     * Stop currently running MIDlets before the emulator starts another one.
+     * The old MIDlet is notified from its own sandbox event thread because
+     * notifyDestroyed() stops the calling thread.
+     */
+    public static void shutdownAllInstancesThen(final Runnable continuation) {
+        if (continuation == null) return;
+
+        final FreeJ2ME[] snapshot;
+        synchronized (activeInstances) {
+            snapshot = activeInstances.toArray(new FreeJ2ME[activeInstances.size()]);
+        }
+        if (snapshot.length == 0) {
+            continuation.run();
+            return;
+        }
+
+        for (int i = 0; i < snapshot.length; i++) {
+            snapshot[i].requestShutdown();
+        }
+
+        Thread waiter = new Thread(new Runnable() {
+            public void run() {
+                long deadline = System.currentTimeMillis() + 2000L;
+                while (hasActiveThreads(snapshot) && System.currentTimeMillis() < deadline) {
+                    try {
+                        Thread.sleep(10L);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                if (hasActiveThreads(snapshot)) {
+                    System.err.println("Timed out waiting for previous MIDlets to stop; starting the selected MIDlet anyway.");
+                }
+                continuation.run();
+            }
+        }, "FreeJ2ME app switch");
+        waiter.setDaemon(true);
+        waiter.start();
+    }
+
+    private static boolean hasActiveThreads(FreeJ2ME[] instances) {
+        for (int i = 0; i < instances.length; i++) {
+            FreeJ2ME instance = instances[i];
+            if (activeInstances.contains(instance)) return true;
+            Thread thread = instance.eventThread;
+            if (thread != null && thread.isAlive()) return true;
+        }
+        return false;
+    }
+
+    /** Keep the Mobile binding available while MIDlet threads are shutting down. */
+    private void cleanupAfterSandboxThreadsStop(final ThreadGroup group) {
+        if (group == null) {
+            activeInstances.remove(this);
+            return;
+        }
+        synchronized (this) {
+            if (threadGroupCleanupStarted) return;
+            threadGroupCleanupStarted = true;
+        }
+
+        // Run outside the sandbox group so this cleanup thread does not keep
+        // the group alive while it waits for the MIDlet's remaining threads.
+        ThreadGroup cleanupGroup = group.getParent();
+        if (cleanupGroup == null) {
+            activeInstances.remove(this);
+            threadgroup2mobile.remove(group);
+            return;
+        }
+        Thread cleanup = new Thread(cleanupGroup, new Runnable() {
+            public void run() {
+                while (sandboxGroupHasLiveThreads(group)) {
+                    try {
+                        Thread.sleep(50L);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                threadgroup2mobile.remove(group);
+                activeInstances.remove(FreeJ2ME.this);
+            }
+        }, "FreeJ2ME threadgroup cleanup-" + this);
+        cleanup.setDaemon(true);
+        cleanup.start();
+    }
+
+    private static boolean sandboxGroupHasLiveThreads(ThreadGroup group) {
+        int capacity = Math.max(16, group.activeCount() * 2 + 8);
+        for (int attempt = 0; attempt < 4; attempt++) {
+            Thread[] threads = new Thread[capacity];
+            int count = group.enumerate(threads);
+            for (int i = 0; i < count; i++) {
+                Thread thread = threads[i];
+                if (thread != null && thread.isAlive()) return true;
+            }
+            if (count < capacity) return false;
+            capacity *= 2;
+        }
+        // Enumeration was full on every pass; assume there are still threads
+        // rather than removing the mapping while a MIDlet thread may use it.
+        return true;
+    }
+
+    private void requestShutdown() {
+        synchronized (this) {
+            if (shutdownRequested) return;
+            shutdownRequested = true;
+        }
+        addEvent(new Runnable() {
+            public void run() {
+                try {
+                    Mobile currentMobile = mobile;
+                    if (currentMobile != null && currentMobile.getPlatform() != null
+                            && currentMobile.getPlatform().loader != null
+                            && currentMobile.getPlatform().loader.getMainMidlet() != null) {
+                        currentMobile.getPlatform().loader.getMainMidlet().notifyDestroyed();
+                    } else {
+                        notifyDestroy();
+                    }
+                } catch (Exception error) {
+                    System.err.println("Unable to stop previous MIDlet: " + error);
+                    notifyDestroy();
+                }
+            }
+        });
     }
 
     public void openMidlet() {
@@ -227,6 +416,7 @@ public class FreeJ2ME extends J2meSandBox {
 
         j2meframe.setVisible(true);
         j2meframe.pack();
+        if (focusRequested) bringToFront();
 
         resize();
         j2meframe.setSize(lcdWidth * scaleFactor + xborder, lcdHeight * scaleFactor + yborder);
@@ -799,6 +989,10 @@ public class FreeJ2ME extends J2meSandBox {
 
     public void notifyDestroy() {
         exit = true;
+        synchronized (proxyAwtEvents) {
+            proxyAwtEvents.notifyAll();
+        }
+        cleanupAfterSandboxThreadsStop(sandboxThreadGroup);
         if (j2meframe != null) {
             j2meframe.setVisible(false);
             j2meframe.dispose();

@@ -28,6 +28,7 @@ import java.net.URLClassLoader;
 import java.net.URLDecoder;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 import java.util.HashMap;
@@ -131,6 +132,7 @@ public class MIDletLoader extends URLClassLoader {
             System.out.println("Problem Constructing " + name + " class: " + className);
             System.out.println("Reason: " + e.getMessage());
             e.printStackTrace();
+            printInvocationTargetCause(e);
             //System.exit(0);
             return;
         }
@@ -155,7 +157,29 @@ public class MIDletLoader extends URLClassLoader {
             start.invoke(mainMidlet);
         } catch (Exception e) {
             e.printStackTrace();
+            printInvocationTargetCause(e);
             //System.exit(0);
+        }
+    }
+
+    /**
+     * miniJVM's Throwable.printStackTrace() prints only the current throwable's
+     * stack, so explicitly print the target and nested causes of reflective
+     * MIDlet start failures.
+     */
+    private void printInvocationTargetCause(Exception error) {
+        Throwable cause = error instanceof InvocationTargetException
+                ? ((InvocationTargetException) error).getTargetException()
+                : error.getCause();
+        int depth = 0;
+        while (cause != null && cause != error && depth < 8) {
+            System.err.println("MIDlet startApp cause:");
+            cause.printStackTrace();
+            Throwable nested = cause.getCause();
+            if (nested == cause) break;
+            error = cause instanceof Exception ? (Exception) cause : error;
+            cause = nested;
+            depth++;
         }
     }
 
