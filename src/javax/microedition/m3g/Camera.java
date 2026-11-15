@@ -59,7 +59,7 @@ public class Camera extends Node
 			}
 			else
 			{
-				if (projectionParams[1] == 0f)
+				if (projectionParams[1] == 0f || projectionParams[2] == projectionParams[3])
 				{
 					throw new ArithmeticException();
 				}
@@ -81,7 +81,10 @@ public class Camera extends Node
 
 	public void setParallel(float fovy, float aspectRatio, float near, float far)
 	{
-		validateProjection(fovy, aspectRatio, near, far);
+		if (!(fovy > 0f) || !(aspectRatio > 0f))
+		{
+			throw new IllegalArgumentException();
+		}
 		projectionType = PARALLEL;
 		projectionParams[0] = fovy;
 		projectionParams[1] = aspectRatio;
@@ -91,7 +94,10 @@ public class Camera extends Node
 
 	public void setPerspective(float fovy, float aspectRatio, float near, float far)
 	{
-		validateProjection(fovy, aspectRatio, near, far);
+		if (!(fovy > 0f) || !(fovy < 180f) || !(aspectRatio > 0f) || !(near > 0f) || !(far > 0f))
+		{
+			throw new IllegalArgumentException();
+		}
 		projectionType = PERSPECTIVE;
 		projectionParams[0] = fovy;
 		projectionParams[1] = aspectRatio;
@@ -140,14 +146,6 @@ public class Camera extends Node
 
 		transform.set(matrix);
 		return transform;
-	}
-
-	private void validateProjection(float fovy, float aspectRatio, float near, float far)
-	{
-		if (!(fovy > 0f) || !(aspectRatio > 0f) || near <= 0f || far <= 0f || near == far)
-		{
-			throw new IllegalArgumentException();
-		}
 	}
 
 }

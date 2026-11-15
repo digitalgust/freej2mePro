@@ -25,10 +25,17 @@ public class Appearance extends Object3D
 	private Material material;
 	private PolygonMode polygonMode;
 	private int layer;
-	private final Texture2D[] textures = new Texture2D[MAX_TEXTURE_UNITS];
+	private Texture2D[] textures = new Texture2D[MAX_TEXTURE_UNITS];
 
 
 	public Appearance() {  }
+
+	protected Object3D duplicateImpl()
+	{
+		Appearance copy = (Appearance) super.duplicateImpl();
+		copy.textures = textures.clone();
+		return copy;
+	}
 
 
 	public CompositingMode getCompositingMode() { return compositingMode; }

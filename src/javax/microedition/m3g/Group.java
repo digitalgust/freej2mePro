@@ -44,6 +44,17 @@ public class Group extends Node
 		nodes = new Vector<Node>();
 	}
 
+	protected Object3D duplicateImpl()
+	{
+		Group copy = (Group) super.duplicateImpl();
+		copy.nodes = new Vector<Node>();
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			copy.addChild((Node) nodes.elementAt(i).duplicate());
+		}
+		return copy;
+	}
+
 
 	public void addChild(Node child)
 	{

@@ -39,6 +39,17 @@ public abstract class Node extends Transformable
 	private int zTarget = NONE;
 	private int yTarget = NONE;
 
+	protected Object3D duplicateImpl()
+	{
+		Node copy = (Node) super.duplicateImpl();
+		copy.parent = null;
+		copy.alignRef = null;
+		copy.yAlignRef = null;
+		copy.zTarget = NONE;
+		copy.yTarget = NONE;
+		return copy;
+	}
+
 
 	public void align(Node reference)
 	{

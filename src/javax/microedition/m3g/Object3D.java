@@ -18,12 +18,12 @@ package javax.microedition.m3g;
 
 import java.util.Vector;
 
-public abstract class Object3D
+public abstract class Object3D implements Cloneable
 {
 
 	private int userid;
 	private Object userObject;
-	private final Vector<AnimationTrack> animationTracks = new Vector<AnimationTrack>();
+	private Vector<AnimationTrack> animationTracks = new Vector<AnimationTrack>();
 
 
 	public void addAnimationTrack(AnimationTrack animationTrack)
@@ -47,7 +47,25 @@ public abstract class Object3D
 		return animate(time, new Vector<Object3D>());
 	}
 
-	public Object3D duplicate() { return this; }
+	public Object3D duplicate() { return duplicateImpl(); }
+
+	protected Object3D duplicateImpl()
+	{
+		try
+		{
+			Object3D copy = (Object3D) super.clone();
+			copy.animationTracks = new Vector<AnimationTrack>();
+			for (int i = 0; i < animationTracks.size(); i++)
+			{
+				copy.animationTracks.addElement((AnimationTrack) animationTracks.elementAt(i).duplicate());
+			}
+			return copy;
+		}
+		catch (CloneNotSupportedException e)
+		{
+			throw new IllegalStateException("M3G object could not be duplicated", e);
+		}
+	}
 
 	public Object3D find(int userID)
 	{

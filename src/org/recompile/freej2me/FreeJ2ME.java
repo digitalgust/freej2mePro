@@ -254,7 +254,14 @@ public class FreeJ2ME extends J2meSandBox {
 
             settingsChanged();
 
-            j2meframe.setTitle(mobile.getPlatform().loader.getMidletProperty("MIDlet-Name"));
+            String midletName = mobile.getPlatform().loader.getMidletProperty("MIDlet-Name");
+            if (midletName.length() == 0) {
+                midletName = mobile.getPlatform().loader.name;
+            }
+            if (midletName == null || midletName.length() == 0) {
+                midletName = mobile.getPlatform().loader.jarname;
+            }
+            j2meframe.setTitle(midletName + "/" + mobile.getPlatform().loader.jarname);
             mobile.getPlatform().runJar();
         } else {
             System.out.println("Couldn't load jar...");

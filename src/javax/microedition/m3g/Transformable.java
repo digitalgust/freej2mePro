@@ -20,10 +20,20 @@ public abstract class Transformable extends Object3D
 {
 	private static final float EPSILON = 1.0e-6f;
 
-	private final Transform matrix = new Transform();
-	private final Transform orientation = new Transform();
-	private final float[] translation = new float[] { 0f, 0f, 0f };
-	private final float[] scale = new float[] { 1f, 1f, 1f };
+	private Transform matrix = new Transform();
+	private Transform orientation = new Transform();
+	private float[] translation = new float[] { 0f, 0f, 0f };
+	private float[] scale = new float[] { 1f, 1f, 1f };
+
+	protected Object3D duplicateImpl()
+	{
+		Transformable copy = (Transformable) super.duplicateImpl();
+		copy.matrix = new Transform(matrix);
+		copy.orientation = new Transform(orientation);
+		copy.translation = translation.clone();
+		copy.scale = scale.clone();
+		return copy;
+	}
 
 	public void getCompositeTransform(Transform transform)
 	{
@@ -140,7 +150,8 @@ public abstract class Transformable extends Object3D
 	{
 		if (transform == null)
 		{
-			throw new NullPointerException();
+			this.matrix.setIdentity();
+			return;
 		}
 		this.matrix.set(transform);
 	}

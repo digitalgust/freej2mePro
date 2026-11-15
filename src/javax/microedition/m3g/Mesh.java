@@ -64,6 +64,14 @@ public class Mesh extends Node
 		this.appearances = new Appearance[] { appearance };
 	}
 
+	protected Object3D duplicateImpl()
+	{
+		Mesh copy = (Mesh) super.duplicateImpl();
+		copy.appearances = appearances != null ? appearances.clone() : null;
+		copy.indexbuffers = indexbuffers != null ? indexbuffers.clone() : null;
+		return copy;
+	}
+
 	public Appearance getAppearance(int index) { return appearances[index]; }
 
 	public IndexBuffer getIndexBuffer(int index) { return indexbuffers[index]; }
