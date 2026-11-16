@@ -33,6 +33,7 @@ import java.lang.reflect.Method;
 
 import java.util.HashMap;
 import java.util.ArrayList;
+import java.util.Map;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
@@ -41,6 +42,8 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodAdapter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.commons.RemappingClassAdapter;
+import org.objectweb.asm.commons.SimpleRemapper;
 
 import javax.microedition.midlet.*;
 import javax.microedition.midlet.MIDletStateChangeException;
@@ -59,6 +62,15 @@ public class MIDletLoader extends URLClassLoader {
 
     private HashMap<String, String> properties = new HashMap<String, String>(32);
     private final BytecodeInjectionTool bytecodeInjectionTool;
+
+    private static final SimpleRemapper MIDLET_TYPE_REMAPPER = createMidletTypeRemapper();
+
+    private static SimpleRemapper createMidletTypeRemapper() {
+        Map<String, String> mappings = new HashMap<String, String>();
+        mappings.put("java/util/Timer", "org/recompile/mobile/compat/Timer");
+        mappings.put("java/util/TimerTask", "org/recompile/mobile/compat/TimerTask");
+        return new SimpleRemapper(mappings);
+    }
 
     public static Mobile curMobile;
 
@@ -361,32 +373,70 @@ public class MIDletLoader extends URLClassLoader {
     }
 
 
-    public Class loadClass(String name) throws ClassNotFoundException {
-        InputStream stream;
-        String resource;
-        byte[] code;
-
-        //System.out.println("Load Class "+name);
-
-        if (
-                name.startsWith("java.") || name.startsWith("javax.") || name.startsWith("com.nokia") ||
-                        name.startsWith("com.mascotcapsule") || name.startsWith("com.samsung") || name.startsWith("sun.") ||
-                        name.startsWith("com.siemens") || name.startsWith("org.recompile")
-        ) {
-            return loadClass(name, true);
+    public Class<?> loadClass(String name) throws ClassNotFoundException {
+        if (isParentClass(name)) {
+            return loadRuntimeClass(name);
         }
+        return loadInstrumentedClass(name);
+    }
 
+    /**
+     * URLClassLoader's two-argument loadClass method, used by the MIDlet
+     * launcher and by JVM linkage, loads dependencies through findClass rather
+     * than the one-argument overload above. Instrumenting findClass keeps both
+     * paths consistent.
+     */
+    protected Class<?> findClass(String name) throws ClassNotFoundException {
+        if (isParentClass(name)) {
+            return loadRuntimeClass(name);
+        }
+        return loadInstrumentedClass(name);
+    }
+
+    private Class<?> loadRuntimeClass(String name) throws ClassNotFoundException {
+        // In MiniJVM the URLClassLoader parent can be the current context
+        // loader. Calling loadClass(name, true) here can then delegate back to
+        // this MIDletLoader indefinitely. Resolve emulator/runtime classes
+        // through the loader that defined MIDletLoader itself instead.
+        ClassLoader runtimeLoader = MIDletLoader.class.getClassLoader();
+        if (runtimeLoader != null && runtimeLoader != this) {
+            try {
+                return runtimeLoader.loadClass(name);
+            } catch (ClassNotFoundException ignored) {
+                // Preserve the old fallback for classes bundled in the MIDlet
+                // archive under one of the platform package prefixes.
+            }
+        }
+        return super.findClass(name);
+    }
+
+    private Class<?> loadInstrumentedClass(String name) throws ClassNotFoundException {
+        InputStream stream = null;
         try {
-            //System.out.println("Instrumenting Class "+name);
-            resource = name.replace(".", "/") + ".class";
+            String resource = name.replace(".", "/") + ".class";
             stream = super.getResourceAsStream(resource);
-            code = instrument(stream);
+            byte[] code = instrument(stream);
             return defineClass(name, code, 0, code.length);
         } catch (Exception e) {
             System.out.println("Error Adapting Class " + name);
-            return null;
+            throw new ClassNotFoundException(name, e);
+        } finally {
+            if (stream != null) {
+                try {
+                    stream.close();
+                } catch (Exception ignored) {
+                }
+            }
         }
+    }
 
+    private boolean isParentClass(String name) {
+        return name.startsWith("java.") || name.startsWith("javax.")
+                || name.startsWith("com.nokia")
+                || name.startsWith("com.mascotcapsule")
+                || name.startsWith("com.samsung") || name.startsWith("sun.")
+                || name.startsWith("com.siemens")
+                || name.startsWith("org.recompile");
     }
 
 
@@ -450,7 +500,12 @@ public class MIDletLoader extends URLClassLoader {
         }
         ClassReader reader = new ClassReader(stream);
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
-        ClassVisitor visitor = new ASMVisitor(writer);
+        // Keep MIDlet Timer objects inside the emulator's compatibility
+        // scheduler. The JDK Timer terminates its worker after an uncaught
+        // task exception, which makes later scheduling fail for otherwise
+        // unrelated MIDlet tasks.
+        ClassVisitor visitor = new RemappingClassAdapter(writer, MIDLET_TYPE_REMAPPER);
+        visitor = new ASMVisitor(visitor);
         reader.accept(visitor, 0);
         return writer.toByteArray();
     }
