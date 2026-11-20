@@ -53,7 +53,7 @@ public abstract class Canvas extends Displayable {
     private boolean repaintInProgress = false;
     private long repaintSerial = 0L;
     private long completedRepaintSerial = 0L;
-    private static final long SERVICE_REPAINT_TIMEOUT_NS = 50_000_000L;
+    private static final long SERVICE_REPAINT_TIMEOUT_NS = 200_000_000L;
 
     protected Canvas() {
         width = FreeJ2ME.getMobile().getPlatform().lcdWidth;

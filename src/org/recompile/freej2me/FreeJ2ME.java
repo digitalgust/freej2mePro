@@ -194,6 +194,36 @@ public class FreeJ2ME extends J2meSandBox {
         waiter.start();
     }
 
+    /**
+     * Request orderly destruction of every MIDlet and wait briefly for its
+     * sandbox threads to stop. Call from the host app's close path before its
+     * own thread manager tears down the FreeJ2ME event threads.
+     */
+    public static void shutdownAllInstances() {
+        final FreeJ2ME[] snapshot;
+        synchronized (activeInstances) {
+            snapshot = activeInstances.toArray(new FreeJ2ME[activeInstances.size()]);
+        }
+        if (snapshot.length == 0) return;
+
+        for (int i = 0; i < snapshot.length; i++) {
+            snapshot[i].requestShutdown();
+        }
+
+        long deadline = System.currentTimeMillis() + 2000L;
+        while (hasActiveThreads(snapshot) && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(10L);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (hasActiveThreads(snapshot)) {
+            System.err.println("Timed out waiting for FreeJ2ME MIDlet threads to stop.");
+        }
+    }
+
     private static boolean hasActiveThreads(FreeJ2ME[] instances) {
         for (int i = 0; i < instances.length; i++) {
             FreeJ2ME instance = instances[i];
