@@ -506,7 +506,9 @@ public class MIDletLoader extends URLClassLoader {
         // unrelated MIDlet tasks.
         ClassVisitor visitor = new RemappingClassAdapter(writer, MIDLET_TYPE_REMAPPER);
         visitor = new ASMVisitor(visitor);
-        reader.accept(visitor, 0);
+        // RemappingMethodAdapter uses LocalVariablesSorter, which requires
+        // expanded stack-map frames when adapting Java 6+ class files.
+        reader.accept(visitor, ClassReader.EXPAND_FRAMES);
         return writer.toByteArray();
     }
 

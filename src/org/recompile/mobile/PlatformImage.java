@@ -34,6 +34,8 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
     protected BufferedImage canvas;
     protected PlatformGraphics gc;
 
+    private static volatile int lastUnsupportedNokiaManipulation = Integer.MIN_VALUE;
+
     public boolean isNull = false;
 
     public PlatformGraphics getGraphics() {
@@ -387,53 +389,114 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
 
 
     public static PlatformImageTransform nokiaTransformImage(BufferedImage image, int manipulation) {
-        //DirectGraphics manipulation order : rotate -> vertical mirror-> horizontal mirror
-        //DirectGraphics rotation is : counter-clockwise
-        //Sprite manipulation order : horizontal mirror -> rotate
-        //Sprite rotation is : clockwise
-        final int HV = DirectGraphics.FLIP_VERTICAL | DirectGraphics.FLIP_HORIZONTAL;
-        final int HV90 = DirectGraphics.ROTATE_90 | DirectGraphics.FLIP_VERTICAL | DirectGraphics.FLIP_HORIZONTAL;
-        final int HV180 = DirectGraphics.ROTATE_180 | DirectGraphics.FLIP_VERTICAL | DirectGraphics.FLIP_HORIZONTAL;
-        final int HV270 = DirectGraphics.ROTATE_270 | DirectGraphics.FLIP_VERTICAL | DirectGraphics.FLIP_HORIZONTAL;
-        final int V90 = DirectGraphics.ROTATE_90 | DirectGraphics.FLIP_VERTICAL;
-        final int V180 = DirectGraphics.ROTATE_180 | DirectGraphics.FLIP_VERTICAL;
-        final int V270 = DirectGraphics.ROTATE_270 | DirectGraphics.FLIP_VERTICAL;
-        final int H90 = DirectGraphics.ROTATE_90 | DirectGraphics.FLIP_HORIZONTAL;
-        final int H180 = DirectGraphics.ROTATE_180 | DirectGraphics.FLIP_HORIZONTAL;
-        final int H270 = DirectGraphics.ROTATE_270 | DirectGraphics.FLIP_HORIZONTAL;
-        switch (manipulation) {
-            case V180:
-            case DirectGraphics.FLIP_HORIZONTAL:
-                return midpTransformImage(image, Sprite.TRANS_MIRROR);
-            case H180:
-            case DirectGraphics.FLIP_VERTICAL:
-                return midpTransformImage(image, Sprite.TRANS_MIRROR_ROT180);
-            case HV90:
-            case DirectGraphics.ROTATE_90:
-                return midpTransformImage(image, Sprite.TRANS_ROT270);
-            case HV:
-            case DirectGraphics.ROTATE_180:
-                return midpTransformImage(image, Sprite.TRANS_ROT180);
-            case HV270:
-            case DirectGraphics.ROTATE_270:
-                return midpTransformImage(image, Sprite.TRANS_ROT90);
-            case V90:
-            case H270:
-                return midpTransformImage(image, Sprite.TRANS_MIRROR_ROT270);
-            case H90:
-            case V270:
-                return midpTransformImage(image, Sprite.TRANS_MIRROR_ROT90);
-            case 0: /* No Manipulation */
-            case HV180:
-                break;
-            default:
+        int transform = decodeNokiaManipulation(manipulation);
+        if (transform < 0) {
+            // Keep unsupported values visible without flooding the console from
+            // a draw loop. Valid legacy and standard DirectGraphics values are
+            // decoded above and use the per-thread transform object.
+            if (lastUnsupportedNokiaManipulation != manipulation) {
+                lastUnsupportedNokiaManipulation = manipulation;
                 System.out.println("manipulateImage " + manipulation + " not defined");
+            }
+            transform = Sprite.TRANS_NONE;
         }
-        PlatformImageTransform pt = new PlatformImageTransform();
-        pt.transformType = Sprite.TRANS_NONE;
-        pt.width = image.getWidth();
-        pt.height = image.getHeight();
-        return pt;
+        return midpTransformImage(image, transform);
+    }
+
+    /**
+     * Convert the DirectGraphics manipulation value to a MIDP Sprite transform.
+     * Some MIDlets inline the alternate flag values 1/2/4/8/16 while others
+     * use the Nokia values exposed by this emulator (flip bits plus degree
+     * rotations). In both encodings rotation is counter-clockwise, while
+     * Sprite transforms rotate clockwise.
+     */
+    private static int decodeNokiaManipulation(int manipulation) {
+        int horizontalFlip;
+        int verticalFlip;
+        int counterClockwiseQuarterTurns;
+
+        // Compatibility with MIDlets compiled against the alternate Nokia
+        // constants: H=1, ROT90=2, ROT180=4, ROT270=8, V=16.
+        if (manipulation >= 0 && (manipulation & ~0x1F) == 0) {
+            horizontalFlip = manipulation & 0x01;
+            verticalFlip = manipulation & 0x10;
+            switch (manipulation & 0x0E) {
+                case 0:
+                    counterClockwiseQuarterTurns = 0;
+                    break;
+                case 0x02:
+                    counterClockwiseQuarterTurns = 1;
+                    break;
+                case 0x04:
+                    counterClockwiseQuarterTurns = 2;
+                    break;
+                case 0x08:
+                    counterClockwiseQuarterTurns = 3;
+                    break;
+                default:
+                    return -1; // Multiple rotation flags are not a valid value.
+            }
+        } else {
+            // Standard Nokia DirectGraphics constants: flip bits and the
+            // literal rotation values 90, 180, and 270.
+            horizontalFlip = manipulation & DirectGraphics.FLIP_HORIZONTAL;
+            verticalFlip = manipulation & DirectGraphics.FLIP_VERTICAL;
+            int rotation = manipulation & ~(DirectGraphics.FLIP_HORIZONTAL | DirectGraphics.FLIP_VERTICAL);
+            if ((manipulation & ~(DirectGraphics.FLIP_HORIZONTAL | DirectGraphics.FLIP_VERTICAL | 0x1FF)) != 0) {
+                return -1;
+            }
+            switch (rotation) {
+                case 0:
+                    counterClockwiseQuarterTurns = 0;
+                    break;
+                case DirectGraphics.ROTATE_90:
+                    counterClockwiseQuarterTurns = 1;
+                    break;
+                case DirectGraphics.ROTATE_180:
+                    counterClockwiseQuarterTurns = 2;
+                    break;
+                case DirectGraphics.ROTATE_270:
+                    counterClockwiseQuarterTurns = 3;
+                    break;
+                default:
+                    return -1;
+            }
+        }
+
+        // Convert the requested counter-clockwise rotation to Sprite's
+        // clockwise rotation, then fold the mirrors into one of the eight
+        // canonical MIDP transforms.
+        int clockwiseQuarterTurns = (4 - counterClockwiseQuarterTurns) & 3;
+        boolean mirror;
+        if (horizontalFlip != 0 && verticalFlip != 0) {
+            clockwiseQuarterTurns = (clockwiseQuarterTurns + 2) & 3;
+            mirror = false;
+        } else if (horizontalFlip != 0) {
+            clockwiseQuarterTurns = (-clockwiseQuarterTurns) & 3;
+            mirror = true;
+        } else if (verticalFlip != 0) {
+            clockwiseQuarterTurns = (2 - clockwiseQuarterTurns) & 3;
+            mirror = true;
+        } else {
+            mirror = false;
+        }
+
+        if (!mirror) {
+            switch (clockwiseQuarterTurns) {
+                case 0: return Sprite.TRANS_NONE;
+                case 1: return Sprite.TRANS_ROT90;
+                case 2: return Sprite.TRANS_ROT180;
+                case 3: return Sprite.TRANS_ROT270;
+            }
+        } else {
+            switch (clockwiseQuarterTurns) {
+                case 0: return Sprite.TRANS_MIRROR;
+                case 1: return Sprite.TRANS_MIRROR_ROT90;
+                case 2: return Sprite.TRANS_MIRROR_ROT180;
+                case 3: return Sprite.TRANS_MIRROR_ROT270;
+            }
+        }
+        return -1;
     }
 
     public BufferedImage getCanvas() {
@@ -446,7 +509,11 @@ public class PlatformImage extends javax.microedition.lcdui.Image {
         }
         BufferedImage transimage = new BufferedImage(pt.width, pt.height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D gc = transimage.createGraphics();
-        gc.drawImage(image, pt.transform, null);
+        try {
+            gc.drawImage(image, pt.transform, null);
+        } finally {
+            gc.dispose();
+        }
 
         return transimage;
     }
