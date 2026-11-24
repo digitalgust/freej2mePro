@@ -127,7 +127,14 @@ public class MIDletLoader extends URLClassLoader {
         return "unknown.jar";
     }
 
-    public synchronized void start(Mobile mobile) throws MIDletStateChangeException {
+    /**
+     * Start the MIDlet without holding this class loader's monitor. The JVM
+     * synchronizes class loading on the ClassLoader instance; MIDlet
+     * constructors may start worker threads and wait for them, and those
+     * workers can need this loader to load game classes. Holding the loader
+     * monitor across the constructor would deadlock that startup sequence.
+     */
+    public void start(Mobile mobile) throws MIDletStateChangeException {
         Method start;
 
         try {

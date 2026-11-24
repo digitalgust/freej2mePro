@@ -19,6 +19,8 @@ package org.recompile.mobile;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.Vector;
 import javax.sound.midi.MidiSystem;
 import javax.sound.midi.Sequencer;
@@ -31,12 +33,17 @@ import javax.microedition.media.PlayerListener;
 
 import javax.microedition.media.Control;
 import javax.microedition.media.Controllable;
+import javax.microedition.media.control.VideoControl;
 
 public class PlatformPlayer implements Player
 {
+	private static final Set<String> reportedUnsupportedTypes = new HashSet<String>();
+
 	private String contentType = "";
 
 	private audioplayer player;
+	private boolean unsupportedVideo;
+	private final VideoControl unsupportedVideoControl = new UnsupportedVideoControl();
 
 	private int state = Player.UNREALIZED;
 
@@ -47,9 +54,10 @@ public class PlatformPlayer implements Player
 	public PlatformPlayer(InputStream stream, String type)
 	{
 		listeners = new Vector<PlayerListener>();
-		controls = new Control[3];
-
-		contentType = type;
+		contentType = type == null ? "" : type.trim();
+		unsupportedVideo = contentType.length() == 0
+				|| contentType.regionMatches(true, 0, "video/", 0, 6);
+		controls = new Control[unsupportedVideo ? 4 : 3];
 
 		if(Mobile.sound == false)
 		{
@@ -57,19 +65,21 @@ public class PlatformPlayer implements Player
 		}
 		else
 		{
-			if(type.equalsIgnoreCase("audio/mid") || type.equalsIgnoreCase("audio/midi") || type.equalsIgnoreCase("sp-midi") || type.equalsIgnoreCase("audio/spmidi"))
+			if(contentType.equalsIgnoreCase("audio/mid") || contentType.equalsIgnoreCase("audio/midi") || contentType.equalsIgnoreCase("sp-midi") || contentType.equalsIgnoreCase("audio/spmidi"))
 			{
 				player = new midiPlayer(stream);
 			}
 			else
 			{
-				if(type.equalsIgnoreCase("audio/x-wav") || type.equalsIgnoreCase("audio/wav"))
+				if(contentType.equalsIgnoreCase("audio/x-wav") || contentType.equalsIgnoreCase("audio/wav"))
 				{
 					player = new wavPlayer(stream);
 				}
 				else /* TODO: Implement a player for amr and mpeg audio types */
 				{
-					System.out.println("No Player For: "+contentType);
+					if (contentType.length() > 0) {
+						reportUnsupportedType(contentType);
+					}
 					player = new audioplayer();
 				}
 			}
@@ -77,6 +87,9 @@ public class PlatformPlayer implements Player
 		controls[0] = new volumeControl();
 		controls[1] = new tempoControl();
 		controls[2] = new midiControl();
+		if (unsupportedVideo) {
+			controls[3] = unsupportedVideoControl;
+		}
 
 		//System.out.println("media type: "+type);
 	}
@@ -87,6 +100,17 @@ public class PlatformPlayer implements Player
 		listeners = new Vector<PlayerListener>();
 		controls = new Control[3];
 		System.out.println("Player locator: "+locator);
+	}
+
+	private static void reportUnsupportedType(String type)
+	{
+		synchronized (reportedUnsupportedTypes)
+		{
+			if (reportedUnsupportedTypes.add(type))
+			{
+				System.out.println("No Player For: " + type + " (silence)");
+			}
+		}
 	}
 
 
@@ -176,12 +200,17 @@ public class PlatformPlayer implements Player
 
 	public Control getControl(String controlType)
 	{
+		if(controlType == null) { return null; }
 		if(controlType.equals("VolumeControl")) { return controls[0]; }
 		if(controlType.equals("TempoControl")) { return controls[1]; }
 		if(controlType.equals("MIDIControl")) { return controls[2]; }
 		if(controlType.equals("javax.microedition.media.control.VolumeControl")) { return controls[0]; }
 		if(controlType.equals("javax.microedition.media.control.TempoControl")) { return controls[1]; }
 		if(controlType.equals("javax.microedition.media.control.MIDIControl")) { return controls[2]; }
+		if (unsupportedVideo && (controlType.equals("VideoControl")
+				|| controlType.equals("javax.microedition.media.control.VideoControl"))) {
+			return unsupportedVideoControl;
+		}
 		return null;
 	}
 
@@ -201,6 +230,23 @@ public class PlatformPlayer implements Player
 		public long getMediaTime() { return 0; }
 		public boolean isRunning() { return false; }
 		public void deallocate() {  }
+	}
+
+	/** No-op video control used when this emulator has no player for the video stream. */
+	private static class UnsupportedVideoControl implements VideoControl
+	{
+		public int getDisplayHeight() { return 0; }
+		public int getDisplayWidth() { return 0; }
+		public int getDisplayX() { return 0; }
+		public int getDisplayY() { return 0; }
+		public byte[] getSnapshot(String imageType) { return null; }
+		public int getSourceHeight() { return 0; }
+		public int getSourceWidth() { return 0; }
+		public Object initDisplayMode(int mode, Object arg) { return null; }
+		public void setDisplayFullScreen(boolean fullScreenMode) { }
+		public void setDisplayLocation(int x, int y) { }
+		public void setDisplaySize(int width, int height) { }
+		public void setVisible(boolean visible) { }
 	}
 
 	private class midiPlayer extends audioplayer

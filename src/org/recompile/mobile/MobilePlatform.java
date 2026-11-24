@@ -49,7 +49,7 @@ public class MobilePlatform {
 
     public String dataPath = "";
 
-    public int keyState = 0;
+    public volatile int keyState = 0;
 
     java.awt.Frame inputFrame;
 

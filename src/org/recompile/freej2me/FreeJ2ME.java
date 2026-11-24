@@ -96,7 +96,7 @@ public class FreeJ2ME extends J2meSandBox {
         Thread t = new Thread(tg, () -> {//这个线程相当于是一个沙盒，和外部代码隔离，这样就可以同时运行多个freej2me实例
             try {
                 openMidlet();
-                System.out.println("midlet loaded");
+                System.out.println("MIDlet startup dispatched");
                 processEvent();
             } finally {
                 cleanupAfterSandboxThreadsStop(tg);
@@ -302,14 +302,46 @@ public class FreeJ2ME extends J2meSandBox {
                             && currentMobile.getPlatform().loader.getMainMidlet() != null) {
                         currentMobile.getPlatform().loader.getMainMidlet().notifyDestroyed();
                     } else {
-                        notifyDestroy();
+                        shutdownWithoutMidlet();
                     }
                 } catch (Exception error) {
                     System.err.println("Unable to stop previous MIDlet: " + error);
-                    notifyDestroy();
+                    shutdownWithoutMidlet();
                 }
             }
         });
+    }
+
+    /**
+     * A MIDlet may keep its constructor running while its own game thread waits
+     * for input. In that case no MIDlet object has been published yet, so the
+     * normal notifyDestroyed() path is not available.
+     */
+    private void shutdownWithoutMidlet() {
+        stopSandboxThreadsExceptCurrent();
+        notifyDestroy();
+    }
+
+    private void stopSandboxThreadsExceptCurrent() {
+        ThreadGroup group = sandboxThreadGroup;
+        if (group == null) return;
+
+        Thread current = Thread.currentThread();
+        int capacity = Math.max(16, group.activeCount() * 2 + 8);
+        for (int attempt = 0; attempt < 4; attempt++) {
+            Thread[] threads = new Thread[capacity];
+            int count = group.enumerate(threads);
+            for (int i = 0; i < count; i++) {
+                Thread thread = threads[i];
+                if (thread != null && thread != current && thread.isAlive()) {
+                    // MIDlet.notifyDestroyed() uses the same force-stop policy
+                    // for sandbox threads after the app has finished startup.
+                    thread.stop();
+                }
+            }
+            if (count < capacity) return;
+            capacity *= 2;
+        }
     }
 
     public void openMidlet() {
@@ -329,6 +361,8 @@ public class FreeJ2ME extends J2meSandBox {
                     if (mobile.getPlatform().loader != null && mobile.getPlatform().loader.getMainMidlet() != null) {
                         mobile.getPlatform().loader.getMainMidlet().notifyDestroyed();
                         exit = true;
+                    } else {
+                        shutdownWithoutMidlet();
                     }
                 });
             }
@@ -482,7 +516,17 @@ public class FreeJ2ME extends J2meSandBox {
                 midletName = mobile.getPlatform().loader.jarname;
             }
             j2meframe.setTitle(midletName + "/" + mobile.getPlatform().loader.jarname);
-            mobile.getPlatform().runJar();
+            final Mobile currentMobile = mobile;
+            String startupThreadName = "thread-midlet-startup-" + mobile.getPlatform().loader.jarname;
+            Thread startupThread = new Thread(sandboxThreadGroup, () -> {
+                try {
+                    currentMobile.getPlatform().runJar();
+                } catch (Throwable error) {
+                    System.err.println("MIDlet startup failed: " + error);
+                    error.printStackTrace();
+                }
+            }, startupThreadName);
+            startupThread.start();
         } else {
             System.out.println("Couldn't load jar...");
         }

@@ -121,7 +121,7 @@ public class Display {
     }
 
     public static Display getDisplay(MIDlet m) {
-        return m.getDisplay();
+        return m.getFreeJ2MEDisplay();
     }
 
     public boolean isColor() {
