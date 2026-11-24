@@ -38,14 +38,14 @@ public class SkinnedMesh extends Mesh
 	private int[] cachedGpuRecordToPaletteIndices;
 	private int[] cachedGpuPaletteSourceRecords;
 	private boolean cachedGpuPaletteSupported;
-	private final Transform cachedGpuWorkingTransform = new Transform();
+	private Transform cachedGpuWorkingTransform = new Transform();
 	private VertexBuffer cachedSkinnedVertexBuffer;
 	private VertexArray cachedSkinnedPositions;
 	private VertexArray cachedSkinnedNormals;
 	private float[] cachedSkinnedPositionValues;
 	private short[] cachedOutPositions;
 	private byte[] cachedOutNormals;
-	private final float[] cachedSkinnedBias = new float[3];
+	private float[] cachedSkinnedBias = new float[3];
 	private int cachedPositionComponentCount = -1;
 	private int cachedNormalComponentCount = -1;
 
@@ -80,6 +80,81 @@ public class SkinnedMesh extends Mesh
 			this.boneWeights = boneWeights;
 			this.boneMatrices = boneMatrices;
 		}
+	}
+
+	@Override
+	protected Object3D duplicateImpl()
+	{
+		SkinnedMesh copy = (SkinnedMesh) super.duplicateImpl();
+		java.util.Hashtable<Node, Node> boneMap = new java.util.Hashtable<Node, Node>();
+		if (copy.skeleton != null)
+		{
+			Group sourceSkeleton = copy.skeleton;
+			Group copiedSkeleton = (Group) sourceSkeleton.duplicate();
+			buildBoneMap(sourceSkeleton, copiedSkeleton, boneMap);
+			copiedSkeleton.setParent(copy);
+			copy.skeleton = copiedSkeleton;
+		}
+
+		java.util.Vector<BoneTransform> copiedBoneTransforms = new java.util.Vector<BoneTransform>();
+		for (int i = 0; i < boneTransforms.size(); i++)
+		{
+			BoneTransform source = (BoneTransform) boneTransforms.elementAt(i);
+			BoneTransform cloned = new BoneTransform();
+			Node copiedBone = boneMap.get(source.bone);
+			if (copy.skeleton != null && copiedBone == null)
+			{
+				throw new IllegalStateException("SkinnedMesh duplicate lost a bone reference");
+			}
+			cloned.bone = copiedBone != null ? copiedBone : source.bone;
+			cloned.weight = source.weight;
+			cloned.firstVertex = source.firstVertex;
+			cloned.numVertices = source.numVertices;
+			cloned.atRestTransform = new Transform();
+			cloned.atRestTransform.set(source.atRestTransform);
+			copiedBoneTransforms.addElement(cloned);
+		}
+		copy.boneTransforms = copiedBoneTransforms;
+
+		// Object3D.duplicate() begins with a shallow clone. These are per-instance
+		// scratch/output buffers, so a duplicate must not race or overwrite the
+		// original mesh's skinning data when both instances are rendered.
+		copy.cachedGpuWorkingTransform = new Transform();
+		copy.cachedSkinnedBias = new float[3];
+		copy.resetSkinnedOutputCache();
+		copy.invalidateSkinningCache();
+		return copy;
+	}
+
+	private static void buildBoneMap(Node original, Node copy, java.util.Hashtable<Node, Node> boneMap)
+	{
+		boneMap.put(original, copy);
+		if (original instanceof Group && copy instanceof Group)
+		{
+			Group originalGroup = (Group) original;
+			Group copiedGroup = (Group) copy;
+			int childCount = originalGroup.getChildCount();
+			if (childCount != copiedGroup.getChildCount())
+			{
+				throw new IllegalStateException("SkinnedMesh duplicate changed the skeleton hierarchy");
+			}
+			for (int i = 0; i < childCount; i++)
+			{
+				buildBoneMap(originalGroup.getChild(i), copiedGroup.getChild(i), boneMap);
+			}
+		}
+	}
+
+	private void resetSkinnedOutputCache()
+	{
+		cachedSkinnedVertexBuffer = null;
+		cachedSkinnedPositions = null;
+		cachedSkinnedNormals = null;
+		cachedSkinnedPositionValues = null;
+		cachedOutPositions = null;
+		cachedOutNormals = null;
+		cachedPositionComponentCount = -1;
+		cachedNormalComponentCount = -1;
 	}
 
 	public SkinnedMesh(VertexBuffer vertices, IndexBuffer[] submeshes, Appearance[] appearances, Group skeleton)
