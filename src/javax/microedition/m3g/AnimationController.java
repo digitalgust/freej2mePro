@@ -80,26 +80,14 @@ public class AnimationController extends Object3D
 
 	boolean isActive(int worldTime)
 	{
-		if (weight <= 0f)
-		{
-			return false;
-		}
 		return intStart == intEnd || (worldTime >= intStart && worldTime < intEnd);
 	}
 
 	int timeToActivation(int worldTime)
 	{
-		if (weight <= 0f)
-		{
-			return Integer.MAX_VALUE;
-		}
-		if (intStart == intEnd)
-		{
-			return Integer.MAX_VALUE;
-		}
 		if (worldTime < intStart)
 		{
-			return intStart - worldTime;
+			return (int) Math.min(Integer.MAX_VALUE, (long) intStart - worldTime);
 		}
 		if (worldTime >= intEnd)
 		{

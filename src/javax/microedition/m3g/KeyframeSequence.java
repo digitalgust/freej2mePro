@@ -37,6 +37,9 @@ public class KeyframeSequence extends Object3D
 	private int rangeLast;
 	private final int[] times;
 	private final float[][] values;
+	private float[][] inTangents;
+	private float[][] outTangents;
+	private boolean tangentsDirty = true;
 
 
 	public KeyframeSequence(int numKeyframes, int numComponents, int interpolation)
@@ -100,6 +103,7 @@ public class KeyframeSequence extends Object3D
 			throw new IllegalArgumentException();
 		}
 		duration = value;
+		tangentsDirty = true;
 	}
 
 	public void setKeyframe(int index, int time, float[] value)
@@ -119,6 +123,7 @@ public class KeyframeSequence extends Object3D
 		{
 			normalizeQuaternion(values[index]);
 		}
+		tangentsDirty = true;
 		times[index] = time;
 	}
 
@@ -129,6 +134,7 @@ public class KeyframeSequence extends Object3D
 			throw new IllegalArgumentException();
 		}
 		repeat = mode;
+		tangentsDirty = true;
 	}
 
 	public void setValidRange(int first, int last)
@@ -137,6 +143,7 @@ public class KeyframeSequence extends Object3D
 		checkIndex(last);
 		rangeFirst = first;
 		rangeLast = last;
+		tangentsDirty = true;
 	}
 
 	int getSample(float sequenceTime, float[] sample)
@@ -230,10 +237,14 @@ public class KeyframeSequence extends Object3D
 		switch (intType)
 		{
 			case SLERP:
-			case SQUAD:
 				slerp(values[start], values[end], s, sample);
 				return;
 			case SPLINE:
+				interpolateSpline(start, end, s, sample);
+				return;
+			case SQUAD:
+				slerp(values[start], values[end], s, sample);
+				return;
 			case LINEAR:
 			default:
 				for (int i = 0; i < components; i++)
@@ -243,6 +254,72 @@ public class KeyframeSequence extends Object3D
 				}
 				return;
 		}
+	}
+
+	private void interpolateSpline(int start, int end, float s, float[] sample)
+	{
+		ensureTangents();
+		float s2 = s * s;
+		float s3 = s2 * s;
+		float h00 = (2f * s3) - (3f * s2) + 1f;
+		float h01 = (-2f * s3) + (3f * s2);
+		float h10 = s3 - (2f * s2) + s;
+		float h11 = s3 - s2;
+		for (int i = 0; i < components; i++)
+		{
+			float from = values[start][i];
+			float to = values[end][i];
+			sample[i] = (h00 * from) + (h01 * to)
+					+ (h10 * outTangents[start][i]) + (h11 * inTangents[end][i]);
+		}
+	}
+
+	private void ensureTangents()
+	{
+		if (!tangentsDirty)
+		{
+			return;
+		}
+		if (inTangents == null)
+		{
+			inTangents = new float[keyframes][components];
+			outTangents = new float[keyframes][components];
+		}
+
+		int frame = rangeFirst;
+		do
+		{
+			int previous = previousIndex(frame);
+			int next = nextIndex(frame);
+			float previousInterval = intervalDuration(previous);
+			float nextInterval = intervalDuration(frame);
+			float intervalSum = previousInterval + nextInterval;
+			float inScale = 0f;
+			float outScale = 0f;
+			if (intervalSum > 0f && (repeat != CONSTANT || (frame != rangeFirst && frame != rangeLast)))
+			{
+				inScale = 2f * previousInterval / intervalSum;
+				outScale = 2f * nextInterval / intervalSum;
+			}
+
+			for (int i = 0; i < components; i++)
+			{
+				float delta = values[next][i] - values[previous][i];
+				inTangents[frame][i] = 0.5f * delta * inScale;
+				outTangents[frame][i] = 0.5f * delta * outScale;
+			}
+			frame = next;
+		} while (frame != rangeFirst);
+		tangentsDirty = false;
+	}
+
+	private float intervalDuration(int frame)
+	{
+		if (frame == rangeLast)
+		{
+			return (float) duration - times[rangeLast] + times[rangeFirst];
+		}
+		return times[nextIndex(frame)] - times[frame];
 	}
 
 	private void copyValue(int index, float[] sample)
@@ -257,6 +334,15 @@ public class KeyframeSequence extends Object3D
 			return rangeFirst;
 		}
 		return index + 1;
+	}
+
+	private int previousIndex(int index)
+	{
+		if (index == rangeFirst)
+		{
+			return rangeLast;
+		}
+		return index - 1;
 	}
 
 	private void checkIndex(int index)

@@ -308,29 +308,23 @@ public abstract class Object3D implements Cloneable
 				}
 
 				float weight = controller.getWeight();
-				if (weight > 0f)
+				float[] sample = new float[components];
+				int sampleValidity = track.getKeyframeSequence().getSample(controller.getPosition(time), sample);
+				if (time < controller.getActiveIntervalEnd())
 				{
-					float[] sample = new float[components];
-					int sampleValidity = track.getKeyframeSequence().getSample(controller.getPosition(time), sample);
-					if (sampleValidity < validity)
-					{
-						validity = sampleValidity;
-					}
-					for (int i = 0; i < components; i++)
-					{
-						blendedValue[i] += sample[i] * weight;
-					}
-					totalWeight += weight;
+					sampleValidity = (int) Math.min(sampleValidity, (long) controller.getActiveIntervalEnd() - time);
 				}
+				validity = Math.min(validity, sampleValidity);
+				for (int i = 0; i < components; i++)
+				{
+					blendedValue[i] += sample[i] * weight;
+				}
+				totalWeight += weight;
 				index++;
 			}
 
 			if (totalWeight > 0f)
 			{
-				for (int i = 0; i < blendedValue.length; i++)
-				{
-					blendedValue[i] /= totalWeight;
-				}
 				applyAnimatedValue(property, blendedValue);
 			}
 		}

@@ -27,7 +27,11 @@ public final class M3GMath
 
 	public static void multiply(float[] left, float[] right, float[] out)
 	{
-		float[] result = new float[16];
+		float[] result = out;
+		if (out == left || out == right)
+		{
+			result = new float[16];
+		}
 		for (int row = 0; row < 4; row++)
 		{
 			for (int col = 0; col < 4; col++)
@@ -40,7 +44,10 @@ public final class M3GMath
 				result[row * 4 + col] = sum;
 			}
 		}
-		copy(result, out);
+		if (result != out)
+		{
+			copy(result, out);
+		}
 	}
 
 	public static void transpose(float[] matrix)

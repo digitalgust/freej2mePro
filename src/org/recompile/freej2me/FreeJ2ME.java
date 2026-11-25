@@ -94,16 +94,41 @@ public class FreeJ2ME extends J2meSandBox {
         sandboxThreadGroup = tg;
         activeInstances.add(this);
         Thread t = new Thread(tg, () -> {//这个线程相当于是一个沙盒，和外部代码隔离，这样就可以同时运行多个freej2me实例
+            Thread timerResolution = startWindowsTimer();
             try {
                 openMidlet();
                 System.out.println("MIDlet startup dispatched");
                 processEvent();
             } finally {
+                if (timerResolution != null) timerResolution.interrupt();
                 cleanupAfterSandboxThreadsStop(tg);
             }
         }, "thread-eventproxy-" + this);
         eventThread = t;
         t.start();
+    }
+
+    private static Thread startWindowsTimer() {
+//        String vm = System.getProperty("java.vm.name", "");
+//        if (!System.getProperty("os.name", "").startsWith("Windows")
+//                || !"1.8".equals(System.getProperty("java.specification.version"))
+//                || !(vm.contains("HotSpot") || vm.contains("OpenJDK"))) {
+//            return null;
+//        }
+        // Windows HotSpot 8 requests a finer timer period during non-10-ms sleeps.
+        // As in KEmulator, keep one such sleep pending so MIDlet timed waits stay accurate.
+        Thread timer = new Thread(() -> {
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(Integer.MAX_VALUE);
+                }
+            } catch (InterruptedException done) {
+                Thread.currentThread().interrupt();
+            }
+        }, "FreeJ2ME Windows timer resolution");
+        timer.setDaemon(true);
+        timer.start();
+        return timer;
     }
 
     /** Focus an already running copy of this MIDlet, or create a new instance. */

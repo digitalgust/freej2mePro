@@ -90,10 +90,56 @@ public abstract class Node extends Transformable
 			return false;
 		}
 
+		// Build each path relative to the lowest common ancestor. Inverting
+		// absolute world transforms is incorrect when a shared ancestor is
+		// singular: that transform cancels from the relative result and must not
+		// be inverted. This is especially important for bones under a SkinnedMesh.
+		Transform local = new Transform();
 		Transform source = new Transform();
 		Transform destination = new Transform();
-		getCompositeTransform(source);
-		target.getCompositeTransform(destination);
+		Transform product = new Transform();
+
+		Node sourceNode = this;
+		Node targetNode = target;
+		int sourceDepth = 0;
+		int targetDepth = 0;
+		for (Node node = this; node.parent != null; node = node.parent)
+		{
+			sourceDepth++;
+		}
+		for (Node node = target; node.parent != null; node = node.parent)
+		{
+			targetDepth++;
+		}
+
+		while (sourceDepth > targetDepth)
+		{
+			sourceNode.getLocalCompositeTransform(local);
+			M3GMath.multiply(local.getMatrix(), source.getMatrix(), product.getMatrix());
+			source.set(product);
+			sourceNode = sourceNode.parent;
+			sourceDepth--;
+		}
+		while (targetDepth > sourceDepth)
+		{
+			targetNode.getLocalCompositeTransform(local);
+			M3GMath.multiply(local.getMatrix(), destination.getMatrix(), product.getMatrix());
+			destination.set(product);
+			targetNode = targetNode.parent;
+			targetDepth--;
+		}
+		while (sourceNode != targetNode)
+		{
+			sourceNode.getLocalCompositeTransform(local);
+			M3GMath.multiply(local.getMatrix(), source.getMatrix(), product.getMatrix());
+			source.set(product);
+			sourceNode = sourceNode.parent;
+			targetNode.getLocalCompositeTransform(local);
+			M3GMath.multiply(local.getMatrix(), destination.getMatrix(), product.getMatrix());
+			destination.set(product);
+			targetNode = targetNode.parent;
+		}
+
 		destination.invert();
 		destination.postMultiply(source);
 		transform.set(destination);
