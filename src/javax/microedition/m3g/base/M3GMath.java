@@ -27,11 +27,61 @@ public final class M3GMath
 
 	public static void multiply(float[] left, float[] right, float[] out)
 	{
-		float[] result = out;
-		if (out == left || out == right)
+		if (out == left && out == right)
 		{
-			result = new float[16];
+			// The uncommon A = A * A case needs all inputs to remain intact.
+			float[] result = new float[16];
+			multiply(left, right, result);
+			copy(result, out);
+			return;
 		}
+
+		if (out == left)
+		{
+			// Each output row only reads the matching input row from left, so
+			// calculate the complete row before overwriting it. This keeps the
+			// common Transform.postMultiply() path alias-safe without allocating.
+			for (int row = 0; row < 4; row++)
+			{
+				int offset = row * 4;
+				float l0 = left[offset];
+				float l1 = left[offset + 1];
+				float l2 = left[offset + 2];
+				float l3 = left[offset + 3];
+				float r0 = l0 * right[0] + l1 * right[4] + l2 * right[8] + l3 * right[12];
+				float r1 = l0 * right[1] + l1 * right[5] + l2 * right[9] + l3 * right[13];
+				float r2 = l0 * right[2] + l1 * right[6] + l2 * right[10] + l3 * right[14];
+				float r3 = l0 * right[3] + l1 * right[7] + l2 * right[11] + l3 * right[15];
+				out[offset] = r0;
+				out[offset + 1] = r1;
+				out[offset + 2] = r2;
+				out[offset + 3] = r3;
+			}
+			return;
+		}
+
+		if (out == right)
+		{
+			// For an aliased right operand, complete one output column before
+			// overwriting that column. Later columns do not read it.
+			for (int col = 0; col < 4; col++)
+			{
+				float r0 = right[col];
+				float r1 = right[4 + col];
+				float r2 = right[8 + col];
+				float r3 = right[12 + col];
+				float c0 = left[0] * r0 + left[1] * r1 + left[2] * r2 + left[3] * r3;
+				float c1 = left[4] * r0 + left[5] * r1 + left[6] * r2 + left[7] * r3;
+				float c2 = left[8] * r0 + left[9] * r1 + left[10] * r2 + left[11] * r3;
+				float c3 = left[12] * r0 + left[13] * r1 + left[14] * r2 + left[15] * r3;
+				out[col] = c0;
+				out[4 + col] = c1;
+				out[8 + col] = c2;
+				out[12 + col] = c3;
+			}
+			return;
+		}
+
 		for (int row = 0; row < 4; row++)
 		{
 			for (int col = 0; col < 4; col++)
@@ -41,12 +91,8 @@ public final class M3GMath
 				{
 					sum += left[row * 4 + k] * right[k * 4 + col];
 				}
-				result[row * 4 + col] = sum;
+				out[row * 4 + col] = sum;
 			}
-		}
-		if (result != out)
-		{
-			copy(result, out);
 		}
 	}
 
@@ -67,7 +113,15 @@ public final class M3GMath
 
 	public static void invert(float[] matrix)
 	{
-		float[] inv = new float[16];
+		invert(matrix, new float[16]);
+	}
+
+	public static void invert(float[] matrix, float[] inv)
+	{
+		if (inv == matrix)
+		{
+			inv = new float[16];
+		}
 
 		inv[0] = matrix[5] * matrix[10] * matrix[15] -
 				matrix[5] * matrix[11] * matrix[14] -
@@ -196,22 +250,40 @@ public final class M3GMath
 
 	public static void postTranslate(float[] matrix, float tx, float ty, float tz)
 	{
-		float[] translate = new float[16];
-		setIdentity(translate);
-		translate[3] = tx;
-		translate[7] = ty;
-		translate[11] = tz;
-		multiply(matrix, translate, matrix);
+		if (tx == 0f && ty == 0f && tz == 0f)
+		{
+			return;
+		}
+		for (int row = 0; row < 4; row++)
+		{
+			int offset = row * 4;
+			matrix[offset + 3] += matrix[offset] * tx + matrix[offset + 1] * ty + matrix[offset + 2] * tz;
+		}
 	}
 
 	public static void postScale(float[] matrix, float sx, float sy, float sz)
 	{
-		float[] scale = new float[16];
-		setIdentity(scale);
-		scale[0] = sx;
-		scale[5] = sy;
-		scale[10] = sz;
-		multiply(matrix, scale, matrix);
+		if (sx != 1f)
+		{
+			for (int i = 0; i < 16; i += 4)
+			{
+				matrix[i] *= sx;
+			}
+		}
+		if (sy != 1f)
+		{
+			for (int i = 1; i < 16; i += 4)
+			{
+				matrix[i] *= sy;
+			}
+		}
+		if (sz != 1f)
+		{
+			for (int i = 2; i < 16; i += 4)
+			{
+				matrix[i] *= sz;
+			}
+		}
 	}
 
 	public static void postRotate(float[] matrix, float angle, float ax, float ay, float az)

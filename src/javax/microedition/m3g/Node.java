@@ -81,6 +81,11 @@ public abstract class Node extends Transformable
 
 	public boolean getTransformTo(Node target, Transform transform)
 	{
+		return getTransformTo(target, transform, null);
+	}
+
+	boolean getTransformTo(Node target, Transform transform, Transform[] scratch)
+	{
 		if (target == null || transform == null)
 		{
 			throw new NullPointerException();
@@ -94,10 +99,12 @@ public abstract class Node extends Transformable
 		// absolute world transforms is incorrect when a shared ancestor is
 		// singular: that transform cancels from the relative result and must not
 		// be inverted. This is especially important for bones under a SkinnedMesh.
-		Transform local = new Transform();
-		Transform source = new Transform();
-		Transform destination = new Transform();
-		Transform product = new Transform();
+		Transform local = scratch != null ? scratch[0] : new Transform();
+		Transform source = scratch != null ? scratch[1] : new Transform();
+		Transform destination = scratch != null ? scratch[2] : new Transform();
+		Transform product = scratch != null ? scratch[3] : new Transform();
+		source.setIdentity();
+		destination.setIdentity();
 
 		Node sourceNode = this;
 		Node targetNode = target;
@@ -140,7 +147,7 @@ public abstract class Node extends Transformable
 			targetNode = targetNode.parent;
 		}
 
-		destination.invert();
+		destination.invert(local);
 		destination.postMultiply(source);
 		transform.set(destination);
 		return true;

@@ -29,6 +29,12 @@ public class SkinnedMesh extends Mesh
 	private int[][] cachedVertexBoneIndices;
 	private float[][] cachedVertexBoneWeights;
 	private Transform[] cachedBoneMatrices;
+	private int cachedUniqueBoneCount;
+	private int[] cachedBoneRecordToUniqueIndices;
+	private int[] cachedBoneUniqueSourceRecords;
+	private Transform[] cachedUniqueBoneMatrices;
+	private boolean[] cachedUniqueBoneValid;
+	private Transform[] cachedTransformScratch;
 	private int cachedGpuMaxInfluenceCount = -1;
 	private float[] cachedGpuBoneIndices;
 	private float[] cachedGpuBoneWeights;
@@ -476,6 +482,12 @@ public class SkinnedMesh extends Mesh
 		cachedVertexBoneIndices = null;
 		cachedVertexBoneWeights = null;
 		cachedBoneMatrices = null;
+		cachedUniqueBoneCount = 0;
+		cachedBoneRecordToUniqueIndices = null;
+		cachedBoneUniqueSourceRecords = null;
+		cachedUniqueBoneMatrices = null;
+		cachedUniqueBoneValid = null;
+		cachedTransformScratch = null;
 		cachedGpuMaxInfluenceCount = -1;
 		cachedGpuBoneIndices = null;
 		cachedGpuBoneWeights = null;
@@ -556,11 +568,54 @@ public class SkinnedMesh extends Mesh
 			boneMatrices[i] = new Transform();
 		}
 
+		// BoneTransform records are per weighted vertex range, not unique bones.
+		// Keep the record-indexed matrices for the CPU skinning loop, but resolve
+		// each distinct bone-to-mesh transform only once per frame.
+		int[] recordToUniqueIndices = new int[boneCount];
+		int[] uniqueSourceRecords = new int[boneCount];
+		int uniqueCount = 0;
+		for (int i = 0; i < boneCount; i++)
+		{
+			BoneTransform current = (BoneTransform) boneTransforms.elementAt(i);
+			int uniqueIndex = -1;
+			for (int j = 0; j < uniqueCount; j++)
+			{
+				BoneTransform previous = (BoneTransform) boneTransforms.elementAt(uniqueSourceRecords[j]);
+				if (previous.bone == current.bone)
+				{
+					uniqueIndex = j;
+					break;
+				}
+			}
+			if (uniqueIndex < 0)
+			{
+				uniqueIndex = uniqueCount;
+				uniqueSourceRecords[uniqueCount++] = i;
+			}
+			recordToUniqueIndices[i] = uniqueIndex;
+		}
+
+		Transform[] uniqueBoneMatrices = new Transform[uniqueCount];
+		boolean[] uniqueBoneValid = new boolean[uniqueCount];
+		for (int i = 0; i < uniqueCount; i++)
+		{
+			uniqueBoneMatrices[i] = new Transform();
+		}
+		Transform[] transformScratch = new Transform[] {
+				new Transform(), new Transform(), new Transform(), new Transform()
+		};
+
 		cachedVertexCount = vertexCount;
 		cachedBoneTransformCount = boneCount;
 		cachedVertexBoneIndices = boneIndices;
 		cachedVertexBoneWeights = boneWeights;
 		cachedBoneMatrices = boneMatrices;
+		cachedUniqueBoneCount = uniqueCount;
+		cachedBoneRecordToUniqueIndices = recordToUniqueIndices;
+		cachedBoneUniqueSourceRecords = uniqueSourceRecords;
+		cachedUniqueBoneMatrices = uniqueBoneMatrices;
+		cachedUniqueBoneValid = uniqueBoneValid;
+		cachedTransformScratch = transformScratch;
 	}
 
 	GpuSkinningData getGpuSkinningData()
@@ -570,9 +625,18 @@ public class SkinnedMesh extends Mesh
 
 	String getGpuSkinningUnavailableReason(int maxInfluences)
 	{
+		return getGpuSkinningUnavailableReason(maxInfluences, Integer.MAX_VALUE);
+	}
+
+	String getGpuSkinningUnavailableReason(int maxInfluences, int maxBones)
+	{
 		if (maxInfluences < 1)
 		{
 			return "invalidMaxInfluences";
+		}
+		if (maxBones < 1)
+		{
+			return "invalidMaxBones";
 		}
 		VertexBuffer base = getVertexBuffer();
 		if (boneTransforms.isEmpty())
@@ -588,6 +652,10 @@ public class SkinnedMesh extends Mesh
 		if (!ensureGpuPaletteCache())
 		{
 			return "inconsistentAtRestTransform";
+		}
+		if (cachedGpuPaletteBoneCount > maxBones)
+		{
+			return "tooManyBones";
 		}
 		return null;
 	}
@@ -786,14 +854,27 @@ public class SkinnedMesh extends Mesh
 
 	private void updateBoneMatrices()
 	{
-		int boneCount = boneTransforms.size();
-		for (int i = 0; i < boneCount; i++)
+		for (int i = 0; i < cachedUniqueBoneCount; i++)
 		{
-			BoneTransform bt = (BoneTransform) boneTransforms.elementAt(i);
-			Transform matrix = cachedBoneMatrices[i];
-			if (bt.bone.getTransformTo(this, matrix))
+			BoneTransform source = (BoneTransform) boneTransforms.elementAt(cachedBoneUniqueSourceRecords[i]);
+			Transform matrix = cachedUniqueBoneMatrices[i];
+			cachedUniqueBoneValid[i] = source.bone.getTransformTo(this, matrix, cachedTransformScratch);
+			if (!cachedUniqueBoneValid[i])
 			{
-				matrix.postMultiply(bt.atRestTransform);
+				matrix.setIdentity();
+			}
+		}
+
+		int recordCount = boneTransforms.size();
+		for (int i = 0; i < recordCount; i++)
+		{
+			BoneTransform record = (BoneTransform) boneTransforms.elementAt(i);
+			int uniqueIndex = cachedBoneRecordToUniqueIndices[i];
+			Transform matrix = cachedBoneMatrices[i];
+			if (cachedUniqueBoneValid[uniqueIndex])
+			{
+				matrix.set(cachedUniqueBoneMatrices[uniqueIndex]);
+				matrix.postMultiply(record.atRestTransform);
 			}
 			else
 			{
@@ -809,7 +890,7 @@ public class SkinnedMesh extends Mesh
 		{
 			int sourceRecord = cachedGpuPaletteSourceRecords[i];
 			BoneTransform bt = (BoneTransform) boneTransforms.elementAt(sourceRecord);
-			if (bt.bone.getTransformTo(this, matrix))
+			if (bt.bone.getTransformTo(this, matrix, cachedTransformScratch))
 			{
 				matrix.postMultiply(bt.atRestTransform);
 			}

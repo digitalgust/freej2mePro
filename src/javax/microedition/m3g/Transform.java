@@ -52,6 +52,15 @@ public class Transform
 		M3GMath.invert(matrix);
 	}
 
+	void invert(Transform scratch)
+	{
+		if (scratch == null)
+		{
+			throw new NullPointerException();
+		}
+		M3GMath.invert(matrix, scratch.matrix);
+	}
+
 	public void postMultiply(Transform transform)
 	{
 		if (transform == null)
