@@ -22,6 +22,10 @@ public class SkinnedMesh extends Mesh
 	private static final int MAX_GPU_INFLUENCES = 4;
 
 	private Group skeleton;
+	// Duplicated meshes share immutable bind-pose geometry and skin layout until
+	// addTransform() changes the layout. The GL backend uses this token to share
+	// its packed static VBO while keeping each duplicate's pose independent.
+	private Object gpuGeometrySharingKey = new Object();
 	private java.util.Vector boneTransforms = new java.util.Vector();
 	private int cachedVertexCount = -1;
 	private int cachedBoneTransformCount = -1;
@@ -39,6 +43,7 @@ public class SkinnedMesh extends Mesh
 	private float[] cachedGpuBoneIndices;
 	private float[] cachedGpuBoneWeights;
 	private float[] cachedGpuBoneMatrices;
+	private GpuSkinningData cachedGpuSkinningData;
 	private int cachedGpuPaletteRecordCount = -1;
 	private int cachedGpuPaletteBoneCount = -1;
 	private int[] cachedGpuRecordToPaletteIndices;
@@ -230,6 +235,12 @@ public class SkinnedMesh extends Mesh
 		
 		boneTransforms.addElement(bt);
 		invalidateSkinningCache();
+		gpuGeometrySharingKey = new Object();
+	}
+
+	Object getGpuGeometrySharingKey()
+	{
+		return gpuGeometrySharingKey;
 	}
 
 	public void getBoneTransform(Node bone, Transform transform) {
@@ -492,6 +503,7 @@ public class SkinnedMesh extends Mesh
 		cachedGpuBoneIndices = null;
 		cachedGpuBoneWeights = null;
 		cachedGpuBoneMatrices = null;
+		cachedGpuSkinningData = null;
 		cachedGpuPaletteRecordCount = -1;
 		cachedGpuPaletteBoneCount = -1;
 		cachedGpuRecordToPaletteIndices = null;
@@ -711,8 +723,21 @@ public class SkinnedMesh extends Mesh
 			cachedGpuBoneMatrices = new float[boneCount * 16];
 		}
 		updateGpuBoneMatrices(boneCount);
-		return new GpuSkinningData(base, vertexCount, boneCount, Math.min(cachedMaxVertexInfluenceCount, maxInfluences), maxInfluences,
-				cachedGpuBoneIndices, cachedGpuBoneWeights, cachedGpuBoneMatrices);
+		if (cachedGpuSkinningData == null
+				|| cachedGpuSkinningData.baseVertices != base
+				|| cachedGpuSkinningData.vertexCount != vertexCount
+				|| cachedGpuSkinningData.boneCount != boneCount
+				|| cachedGpuSkinningData.maxVertexInfluenceCount != Math.min(cachedMaxVertexInfluenceCount, maxInfluences)
+				|| cachedGpuSkinningData.packedInfluenceCount != maxInfluences
+				|| cachedGpuSkinningData.boneIndices != cachedGpuBoneIndices
+				|| cachedGpuSkinningData.boneWeights != cachedGpuBoneWeights
+				|| cachedGpuSkinningData.boneMatrices != cachedGpuBoneMatrices)
+		{
+			cachedGpuSkinningData = new GpuSkinningData(base, vertexCount, boneCount,
+					Math.min(cachedMaxVertexInfluenceCount, maxInfluences), maxInfluences,
+					cachedGpuBoneIndices, cachedGpuBoneWeights, cachedGpuBoneMatrices);
+		}
+		return cachedGpuSkinningData;
 	}
 
 	private boolean ensureGpuPaletteCache()
