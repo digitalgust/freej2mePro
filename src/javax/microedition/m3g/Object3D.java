@@ -34,6 +34,16 @@ public abstract class Object3D implements Cloneable
 		}
 
 		int property = animationTrack.getTargetProperty();
+		int components = animationTrack.getKeyframeSequence().getComponentCount();
+		for (int i = 0; i < animationTracks.size(); i++)
+		{
+			AnimationTrack existing = animationTracks.elementAt(i);
+			if (existing == animationTrack || (existing.getTargetProperty() == property
+					&& existing.getKeyframeSequence().getComponentCount() != components))
+			{
+				throw new IllegalArgumentException();
+			}
+		}
 		int index = 0;
 		while (index < animationTracks.size() && animationTracks.elementAt(index).getTargetProperty() <= property)
 		{

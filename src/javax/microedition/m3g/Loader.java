@@ -1278,7 +1278,8 @@ public class Loader
 		private void readTransformable(M3GByteReader reader, Transformable target, Vector objectTable, TransformableState state) throws IOException
 		{
 			TransformableState effectiveState = state != null ? state : new TransformableState();
-			readObject3D(reader, target, effectiveState.objectState);
+			// The complete state is applied by this layer after it has been read.
+			readObject3D(reader, null, effectiveState.objectState);
 			boolean hasComponentTransform = reader.readBoolean();
 			if (hasComponentTransform)
 			{
@@ -1306,7 +1307,8 @@ public class Loader
 		private void readNode(M3GByteReader reader, Node target, Vector objectTable, NodeState state) throws IOException
 		{
 			NodeState effectiveState = state != null ? state : new NodeState();
-			readTransformable(reader, target, objectTable, effectiveState.transformableState);
+			// Applying it here would also apply the inherited Object3D state twice.
+			readTransformable(reader, null, objectTable, effectiveState.transformableState);
 			effectiveState.renderingEnabled = reader.readBoolean();
 			effectiveState.pickingEnabled = reader.readBoolean();
 			effectiveState.alphaFactor = reader.readByte() / 255f;
