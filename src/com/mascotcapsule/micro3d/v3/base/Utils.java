@@ -79,19 +79,45 @@ public class Utils {
 		v[3] = x * m[3] + y * m[7] + z * m[11] + w * m[15];
 	}
 
-	static void fillBuffer(FloatBuffer buffer, FloatBuffer vertices, int[] indices) {
+	static final class Workspace {
+		float[] source = new float[0];
+		float[] expanded = new float[0];
+		float[] sourceNormals = new float[0];
+		float[] transformed = new float[0];
+		float[] transformedNormals = new float[0];
+		float[] boneMatrices = new float[0];
+		final float[] matrix = new float[12];
+		final float[] vector = new float[3];
+	}
+
+	private static float[] ensureCapacity(float[] values, int needed) {
+		return values.length >= needed ? values : new float[needed];
+	}
+
+	static void fillBuffer(FloatBuffer buffer, FloatBuffer vertices, int[] indices, Workspace workspace) {
 		buffer.rewind();
-		float[] arr = new float[3];
-		for (int index : indices) {
-			vertices.position(index * 3);
-			vertices.get(arr);
-			buffer.put(arr);
+		if (indices.length == 0) return;
+		int sourceLength = vertices.limit();
+		workspace.source = ensureCapacity(workspace.source, sourceLength);
+		workspace.expanded = ensureCapacity(workspace.expanded, indices.length * 3);
+		vertices.rewind();
+		vertices.get(workspace.source, 0, sourceLength);
+		for (int i = 0, out = 0; i < indices.length; i++) {
+			int index = indices[i] * 3;
+			if (index < 0 || index > sourceLength - 3) {
+				throw new IndexOutOfBoundsException();
+			}
+			workspace.expanded[out++] = workspace.source[index];
+			workspace.expanded[out++] = workspace.source[index + 1];
+			workspace.expanded[out++] = workspace.source[index + 2];
 		}
+		buffer.put(workspace.expanded, 0, indices.length * 3);
+		vertices.position(indices[indices.length - 1] * 3 + 3);
 	}
 
 	static void transform(FloatBuffer srcVertices, FloatBuffer dstVertices,
 						  FloatBuffer srcNormals, FloatBuffer dstNormals,
-						  ByteBuffer bonesBuf, float[] actionMatrices) {
+						  ByteBuffer bonesBuf, float[] actionMatrices, Workspace workspace) {
 		srcVertices.rewind();
 		dstVertices.rewind();
 		if (srcNormals != null) {
@@ -109,8 +135,19 @@ public class Utils {
 		// asFloatBuffer() views — those views default to BIG_ENDIAN regardless of
 		// the backing buffer's order, which would mis-decode the data on LE hosts
 		// (observed: all vertices collapse to one point).
-		float[] boneMatrixTmp = new float[bonesLen * 12];
-		float[] tmp = new float[12];
+		workspace.boneMatrices = ensureCapacity(workspace.boneMatrices, bonesLen * 12);
+		float[] boneMatrixTmp = workspace.boneMatrices;
+		float[] tmp = workspace.matrix;
+		int vertexLength = srcVertices.limit();
+		workspace.source = ensureCapacity(workspace.source, vertexLength);
+		workspace.transformed = ensureCapacity(workspace.transformed, vertexLength);
+		srcVertices.get(workspace.source, 0, vertexLength);
+		if (srcNormals != null) {
+			workspace.sourceNormals = ensureCapacity(workspace.sourceNormals, srcNormals.limit());
+			workspace.transformedNormals = ensureCapacity(workspace.transformedNormals, srcNormals.limit());
+			srcNormals.get(workspace.sourceNormals, 0, srcNormals.limit());
+		}
+		int vertexPos = 0;
 		int boneStride = (12 + 2) * 4; // bytes per bone record
 		for (int i = 0; i < bonesLen; ++i) {
 			int base = i * boneStride;
@@ -131,12 +168,18 @@ public class Utils {
 				multiplyMM(boneMatrixTmp, i * 12, boneMatrixTmp, i * 12, actionMatrices, i * 12);
 			}
 			for (int j = 0; j < boneLen; ++j) {
-				multiplyMV(dstVertices, srcVertices, boneMatrixTmp, i * 12);
-
+				multiplyMV(workspace.transformed, workspace.source, vertexPos, boneMatrixTmp, i * 12, true);
 				if (srcNormals != null) {
-					multiplyMN(dstNormals, srcNormals, boneMatrixTmp, i * 12);
+					multiplyMV(workspace.transformedNormals, workspace.sourceNormals, vertexPos, boneMatrixTmp, i * 12, false);
 				}
+				vertexPos += 3;
 			}
+		}
+		dstVertices.put(workspace.transformed, 0, vertexPos);
+		srcVertices.position(vertexPos);
+		if (srcNormals != null) {
+			dstNormals.put(workspace.transformedNormals, 0, vertexPos);
+			srcNormals.position(vertexPos);
 		}
 	}
 
@@ -180,21 +223,13 @@ public class Utils {
 		resM[resOff + 11] = l08 * r03 + l09 * r07 + l10 * r11 + l11;
 	}
 
-	private static void multiplyMV(FloatBuffer dst, FloatBuffer src, float[] m, int mOffset) {
-		float x = src.get();
-		float y = src.get();
-		float z = src.get();
-		dst.put(x * m[mOffset    ] + y * m[mOffset + 1] + z * m[mOffset +  2] + m[mOffset +  3]);
-		dst.put(x * m[mOffset + 4] + y * m[mOffset + 5] + z * m[mOffset +  6] + m[mOffset +  7]);
-		dst.put(x * m[mOffset + 8] + y * m[mOffset + 9] + z * m[mOffset + 10] + m[mOffset + 11]);
-	}
-
-	private static void multiplyMN(FloatBuffer dst, FloatBuffer src, float[] m, int mOffset) {
-		float x = src.get();
-		float y = src.get();
-		float z = src.get();
-		dst.put(x * m[mOffset    ] + y * m[mOffset + 1] + z * m[mOffset +  2]);
-		dst.put(x * m[mOffset + 4] + y * m[mOffset + 5] + z * m[mOffset +  6]);
-		dst.put(x * m[mOffset + 8] + y * m[mOffset + 9] + z * m[mOffset + 10]);
+	private static void multiplyMV(float[] dst, float[] src, int pos, float[] m, int mOffset, boolean translate) {
+		float x = src[pos], y = src[pos + 1], z = src[pos + 2];
+		float a = x * m[mOffset] + y * m[mOffset + 1] + z * m[mOffset + 2];
+		float b = x * m[mOffset + 4] + y * m[mOffset + 5] + z * m[mOffset + 6];
+		float c = x * m[mOffset + 8] + y * m[mOffset + 9] + z * m[mOffset + 10];
+		dst[pos] = translate ? a + m[mOffset + 3] : a;
+		dst[pos + 1] = translate ? b + m[mOffset + 7] : b;
+		dst[pos + 2] = translate ? c + m[mOffset + 11] : c;
 	}
 }

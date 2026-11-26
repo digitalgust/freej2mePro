@@ -29,6 +29,7 @@ import java.util.Arrays;
 public class FigureImpl {
 	Model model;
 	private int pattern;
+	private final Utils.Workspace workspace = new Utils.Workspace();
 
 	public FigureImpl(byte[] b) {
 		if (b == null) {
@@ -79,7 +80,7 @@ public class FigureImpl {
 	private synchronized void init(byte[] bytes, int offset, int length) throws IOException {
 		model = Loader.loadMbacData(bytes, offset, length);
 		Utils.transform(model.originalVertices, model.vertices,
-				model.originalNormals, model.normals, model.bones, null);
+				model.originalNormals, model.normals, model.bones, null, workspace);
 		sortPolygons();
 		fillTexCoordBuffer();
 	}
@@ -166,10 +167,10 @@ public class FigureImpl {
 		if (actionBones.length == 0) return;
 		synchronized (act.matrices) {
 			for (final Action.Bone actionBone : actionBones) {
-				actionBone.setFrame(frame);
+				actionBone.setFrame(frame, workspace.vector);
 			}
 			Utils.transform(model.originalVertices, model.vertices,
-					model.originalNormals, model.normals, model.bones, act.matrices);
+					model.originalNormals, model.normals, model.bones, act.matrices, workspace);
 		}
 	}
 
@@ -223,7 +224,7 @@ public class FigureImpl {
 		if (model.vertexArray == null) {
 			model.vertexArray = BufferUtils.createFloatBuffer(model.vertexArrayCapacity);
 		}
-		Utils.fillBuffer(model.vertexArray, model.vertices, model.indices);
+		Utils.fillBuffer(model.vertexArray, model.vertices, model.indices, workspace);
 
 		if (model.originalNormals == null) {
 			return;
@@ -231,7 +232,7 @@ public class FigureImpl {
 		if (model.normalsArray == null) {
 			model.normalsArray = BufferUtils.createFloatBuffer(model.vertexArrayCapacity);
 		}
-		Utils.fillBuffer(model.normalsArray, model.normals, model.indices);
+		Utils.fillBuffer(model.normalsArray, model.normals, model.indices, workspace);
 	}
 
 	public synchronized void setPosture(ActTableImpl actTable, int action, int frame, int pattern) {
@@ -245,9 +246,9 @@ public class FigureImpl {
 	}
 
 	synchronized void fillBuffers(FloatBuffer vertices, FloatBuffer normals) {
-		Utils.fillBuffer(vertices, model.vertices, model.indices);
+		Utils.fillBuffer(vertices, model.vertices, model.indices, workspace);
 		if (normals != null) {
-			Utils.fillBuffer(normals, model.normals, model.indices);
+			Utils.fillBuffer(normals, model.normals, model.indices, workspace);
 		}
 	}
 }

@@ -46,16 +46,17 @@ public class Action {
 			this.matrix = matrix;
 		}
 
-		void setFrame(int frame) {
+		void setFrame(int frame, float[] arr) {
 			if (this.frame == frame) {
 				return;
 			}
 			this.frame = frame;
+			// Animation.get may leave its destination untouched before its first
+			// keyframe; match the zero-initialized array used on each old call.
+			arr[0] = arr[1] = arr[2] = 0f;
 			float kgf = frame / 65536f;
 			switch (type) {
 				case 2: {
-					float[] arr = new float[3];
-
 					// translate
 					translate.get(kgf, arr);
 					matrix[mtxOffset +  3] = arr[0];
@@ -87,7 +88,7 @@ public class Action {
 					break;
 				}
 				case 3: {
-					float[] arr = translate.values[0].clone();
+					System.arraycopy(translate.values[0], 0, arr, 0, 3);
 
 					// translate (for all frames)
 					matrix[mtxOffset +  3] = arr[0];
@@ -104,8 +105,6 @@ public class Action {
 					break;
 				}
 				case 4: {
-					float[] arr = new float[3];
-
 					// rotate
 					rotate.get(kgf, arr);
 					rotate(arr[0], arr[1], arr[2]);
@@ -116,16 +115,12 @@ public class Action {
 					break;
 				}
 				case 5: {
-					float[] arr = new float[3];
-
 					// rotate
 					rotate.get(kgf, arr);
 					rotate(arr[0], arr[1], arr[2]);
 					break;
 				}
 				case 6: {
-					float[] arr = new float[3];
-
 					// translate
 					translate.get(kgf, arr);
 					matrix[mtxOffset +  3] = arr[0];
